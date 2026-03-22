@@ -1,0 +1,7 @@
+このフォルダー内にあるドキュメントはすべてalma というアプリの Reverse Engineering した成果物です。 
+
+alma: Revers Engineering対象のアプリ名、またCLI Commandの名前
+プロタン：almaアプリを再実装するプロジェクトの名前。この名前は古いので使用しないでください、正しいプロジェクト名前は:tomu
+
+tomuの設計書などDocsを作成するときにalmaをtomuに書き直して下さい。
+プロタンもtomuのことを指してるので、適宜読みかえ、書き直して下さい。
