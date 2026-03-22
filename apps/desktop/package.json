@@ -1,0 +1,32 @@
+{
+  "name": "@tomu/desktop",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/main/index.ts",
+    "build": "tsc -b",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo 'no lint configured yet'"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^3.0.50",
+    "@ai-sdk/google": "^3.0.34",
+    "@ai-sdk/openai": "^3.0.37",
+    "@tomu/core": "workspace:*",
+    "ai": "^6.0.105",
+    "better-sqlite3": "^12.2.0",
+    "cors": "^2.8.5",
+    "drizzle-orm": "^0.44.4",
+    "express": "^5.1.0",
+    "fast-glob": "^3.3.3",
+    "zod": "^3.25.23"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.2",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3"
+  }
+}

@@ -1,0 +1,61 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f5f5f5;
+  --bg-tertiary: #e5e5e5;
+
+  --fg-primary: #0a0a0a;
+  --fg-secondary: #404040;
+  --fg-muted: #737373;
+
+  --accent: #6366f1;
+  --accent-hover: #4f46e5;
+  --accent-foreground: #ffffff;
+
+  --border: #e5e5e5;
+  --border-hover: #d4d4d4;
+
+  --success: #22c55e;
+  --warning: #eab308;
+  --error: #ef4444;
+  --info: #3b82f6;
+
+  --user-bubble: #6366f1;
+  --assistant-bubble: #f5f5f5;
+}
+
+.dark {
+  --bg-primary: #0a0a0a;
+  --bg-secondary: #141414;
+  --bg-tertiary: #1e1e1e;
+
+  --fg-primary: #fafafa;
+  --fg-secondary: #a3a3a3;
+  --fg-muted: #525252;
+
+  --accent: #818cf8;
+  --accent-hover: #6366f1;
+  --accent-foreground: #0a0a0a;
+
+  --border: #262626;
+  --border-hover: #404040;
+
+  --success: #4ade80;
+  --warning: #facc15;
+  --error: #f87171;
+  --info: #60a5fa;
+
+  --user-bubble: #312e81;
+  --assistant-bubble: #1e1e1e;
+}
+
+*,
+*::before,
+*::after {
+  transition-property: color, background-color, border-color;
+  transition-duration: 150ms;
+  transition-timing-function: ease-in-out;
+}

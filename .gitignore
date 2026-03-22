@@ -47,8 +47,8 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 # Accidental literal tilde directories (Node.js doesn't expand ~)
 ~/
 
-# Lock files from other package managers
-pnpm-lock.yaml
+# Turborepo
+.turbo
 
 # Craft Agent local data (sessions, credentials, config)
 .craft-agent/
