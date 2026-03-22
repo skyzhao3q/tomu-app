@@ -2,7 +2,7 @@
 
 Status: Draft v1
 Date: 2026-03-22
-Source: Alma v0.0.721 リバースエンジニアリング
+Source: alma v0.0.721 reverse engineering
 
 ---
 

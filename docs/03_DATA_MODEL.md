@@ -1,6 +1,6 @@
 # tomu - データモデル設計書
 
-Status: Draft v1
+Status: Draft v2
 Date: 2026-03-22
 
 ---
@@ -249,3 +249,115 @@ tomu の記憶は 4 層で構成され、プロンプト合成時に統合され
 | `plugin_settings` | 通常 | plugin_id, settings (JSON) | プラグイン設定 |
 | `mcp_servers` | 通常 | id, name, url, config | MCP サーバー定義 |
 | `mcp_oauth_tokens` | 通常 | server_id, token | MCP OAuth トークン |
+
+---
+
+## 5. RAG & Embedding Architecture
+
+tomu のRAGシステムは外部クラウドデータベース (Pinecone, Weaviate 等) に依存せず、ユーザーのローカルPC内で完結する **Private RAG** を実現する。
+
+### 5.1 Embedding プロバイダー
+
+| プロバイダー | タイプ | モデル | 次元数 | エンドポイント |
+|:-------------|:-------|:-------|:-------|:---------------|
+| **OpenAI** | `openai` / `openrouter` | `text-embedding-3-small` (デフォルト) | 1536 | `https://api.openai.com/v1/embeddings` |
+| **Ollama** | `ollama` (完全ローカル) | ユーザー指定のローカルモデル | モデル依存 | `http://localhost:11434/api/embeddings` |
+| **Google** | `google` | `text-embedding-004` | モデル依存 | `https://generativelanguage.googleapis.com/v1beta/models/...:embedContent` |
+
+### 5.2 `generateEmbedding()` アダプターパターン
+
+テキストをベクトルに変換する処理は、プロバイダーごとのフォーマット差異を吸収するアダプター関数 `generateEmbedding()` で抽象化される。各プロバイダーの API 仕様の違い (リクエスト/レスポンス形式) をこの関数内で吸収し、呼び出し側は統一的なインターフェースで Embedding を取得できる。
+
+### 5.3 検索フロー (Retrieval Flow)
+
+ユーザーがチャットを送信した際のバックエンド処理:
+
+```
+1. ユーザー入力のベクトル化
+   generateEmbedding("ユーザーの質問文") → [0.012, -0.054, ...] (1536次元配列)
+
+2. 類似度検索 (Cosine Similarity)
+   SELECT memory_id, vec_distance_cosine(embedding, '[0.012...]') as distance
+   FROM memory_embeddings
+   ORDER BY distance ASC
+   LIMIT 5;
+
+3. コンテキストの復元
+   取得した memory_id → memories テーブルから content を引き当て
+   → システムプロンプトの ## MEMORIES セクションにテキストとして注入
+```
+
+### 5.4 Embedding 再構築 (Rebuild Mechanism)
+
+ユーザーが Embedding モデルを変更した場合 (例: OpenAI → Ollama)、過去のベクトルデータは次元数や意味空間が変わるため使用不能になる。
+
+**`rebuildMemoryEmbeddings` API**:
+1. 既存の `memory_embeddings` テーブルを `DROP`
+2. `memories` テーブルに残っている元テキスト (`content`) を新しいモデルで全件再ベクトル化
+3. 新しい次元数で `CREATE VIRTUAL TABLE ... FLOAT[新次元数]` としてテーブルを再作成
+4. フロントエンドに SSE でプログレス (何件中何件完了) を報告
+
+> **設計思想**: 「Embedding モデルは途中で変わる可能性がある」という前提で設計されている。
+
+---
+
+## 6. People Profiles (ファイルベース人物プロファイル)
+
+### 6.1 ファイルスキーマ
+
+保存先: `~/.config/tomu/people/<name>.md`
+
+```yaml
+---
+telegram_id: "123456789"
+discord_id: "987654321"
+feishu_id: "ou_xxxxx"
+username: "alex_dev"
+---
+# About Alex
+- 職業: フロントエンドエンジニア
+- 言語: 主に日本語で話す
+- 好み: ReactとTailwindCSSを好む
+```
+
+### 6.2 アバター画像
+
+| ファイル | 用途 |
+|:---------|:-----|
+| `~/.config/tomu/people/<name>.avatar.jpg` | デフォルトアバター |
+| `~/.config/tomu/people/<name>.avatar.discord.jpg` | Discord 連携用 |
+| `~/.config/tomu/people/<name>.avatar.telegram.jpg` | Telegram 連携用 |
+
+### 6.3 RAG に対する優先度
+
+Context Synthesizer はチャット相手が特定できた場合、**RAG の検索結果よりも優先して** `<name>.md` の内容をシステムプロンプトの上部に強制注入する。これにより「ユーザーの ID」や「嫌いなもの」といった絶対に間違えてはいけない事実が確実にコンテキストに含まれる。
+
+### 6.4 プラットフォームマッチング
+
+IM Bridge (Telegram / Discord 等) 経由でメッセージを受信した際、メッセージの `user_id` とプロファイル内の `telegram_id` / `discord_id` をマッチングさせることで、AI は「今話しかけてきているのが誰か」を正確に認識する。
+
+---
+
+## 7. Cron データストレージ
+
+### 7.1 ジョブ定義
+
+保存先: `~/.config/tomu/cron/jobs.json`
+
+```typescript
+interface CronJob {
+  id: string;               // UUID
+  name: string;             // ジョブ名
+  scheduleType: string;     // 'cron' | 'interval' 等
+  schedule: string;         // cron 式 or interval 値
+  executionMode: string;    // 実行モード
+  payload: string;          // 実行内容 (プロンプト等)
+  enabled: boolean;         // 有効/無効
+}
+```
+
+### 7.2 実行履歴
+
+保存先: `~/.config/tomu/cron/runs.json`
+
+ジョブの実行結果 (成功/失敗、実行時刻、出力) を時系列で記録する。

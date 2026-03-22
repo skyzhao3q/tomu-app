@@ -1,6 +1,6 @@
 # tomu - スキル・プラグイン・拡張システム設計書
 
-Status: Draft v1
+Status: Draft v2
 Date: 2026-03-22
 
 ---
@@ -189,7 +189,37 @@ LLM がスキルのマニュアルに従ってツールを使用
 | GET/PUT | `/api/plugins/:id/permissions` | 権限の取得・更新 |
 | POST | `/api/plugins/:id/update` | GitHub から最新版プル |
 
-### 3.4 インストールワークフロー
+### 3.4 DB スキーマ詳細
+
+Plugin の状態管理は SQLite に永続化される:
+
+| テーブル | カラム | 説明 |
+|:---------|:-------|:-----|
+| `plugins` | `id` (PK), `name`, `version`, `source` (GitHub URL), `enabled` (boolean) | プラグイン本体の登録情報 |
+| `plugin_settings` | `plugin_id`, `settings` (JSON) | プラグイン固有の設定データ |
+| `plugin_permissions` | `plugin_id`, `permission_key`, `granted` (boolean) | プラグインが利用可能な OS 機能の権限管理 |
+
+### 3.5 Plugin テーマサポート
+
+プラグインは UI テーマを提供でき、以下の API で管理する:
+
+| Method | Endpoint | 説明 |
+|:-------|:---------|:-----|
+| GET | `/api/plugin-themes` | 利用可能なテーマ一覧 |
+| POST | `/api/plugin-themes/:id/apply` | テーマを適用 |
+| POST | `/api/plugin-themes/clear` | テーマをクリア (デフォルトに戻す) |
+
+### 3.6 Hooks 設定
+
+プラグインはフック (イベントトリガー) を通じてシステムの各種タイミングに介入できる:
+
+| Method | Endpoint | 説明 |
+|:-------|:---------|:-----|
+| GET | `/api/hooks` | 現在のフック設定を取得 |
+| PUT | `/api/hooks` | フック設定を更新 |
+| POST | `/api/hooks/reload` | フック設定をリロード |
+
+### 3.7 インストールワークフロー
 
 ```
 1. GitHub URL 指定
@@ -208,7 +238,42 @@ LLM がスキルのマニュアルに従ってツールを使用
 
 外部の MCP サーバーと接続し、AI に新しいツールやデータソースを動的に提供する。
 
-### 4.2 API エンドポイント
+### 4.2 MCP ワークフロー
+
+```mermaid
+sequenceDiagram
+    participant Agent as Agent Loop
+    participant MCP as MCP Manager
+    participant Server as MCP Server Process
+    participant External as External Service (GitHub etc.)
+
+    %% MCP サーバーの起動
+    MCP->>Server: Spawn Process (e.g. npx @modelcontextprotocol/server-github)
+    Server-->>MCP: StdIO Connection Established
+
+    %% ツール実行フロー
+    Agent->>MCP: Forward Tool Call (e.g. github_search_issues)
+    MCP->>Server: JSON-RPC Request (Tool Execute)
+    Server->>External: Fetch Data (using mcp_oauth_tokens)
+    External-->>Server: Data (JSON)
+    Server-->>MCP: JSON-RPC Response
+    MCP-->>Agent: Tool Result
+```
+
+### 4.3 MCP Client API エンドポイント
+
+| Method | Endpoint | 説明 |
+|:-------|:---------|:-----|
+| GET | `/api/mcp-client/status` | MCP クライアント全体のステータス取得 |
+| GET | `/api/mcp-client/tools` | 全 MCP サーバーが提供するツール一覧 |
+| GET | `/api/mcp-client/resources` | 全 MCP サーバーが提供するリソース一覧 |
+| POST | `/api/mcp-client/resources/read` | リソースの読み取り |
+| POST | `/api/mcp-client/resources/subscribe` | リソースの変更購読 |
+| POST | `/api/mcp-client/refresh` | 全 MCP サーバーのツール・リソースを再取得 |
+| POST | `/api/mcp-client/reconnect/:name` | 指定サーバーへの再接続 |
+| GET | `/api/mcp-marketplace` | MCP マーケットプレイス (利用可能なサーバー一覧) |
+
+### 4.4 MCP サーバー管理 API
 
 | Method | Endpoint | 説明 |
 |:-------|:---------|:-----|
@@ -218,10 +283,10 @@ LLM がスキルのマニュアルに従ってツールを使用
 | GET | `/api/mcp-servers/:id/oauth/status` | OAuth 状態確認 |
 | DELETE | `/api/mcp-servers/:id/oauth` | OAuth トークン削除 |
 
-### 4.3 データ保存
+### 4.5 データ保存
 
-- `mcp_servers` テーブル: サーバー定義
-- `mcp_oauth_tokens` テーブル: OAuth トークン
+- `mcp_servers` テーブル: `id` (PK), `name`, `command` (e.g. "npx"), `args` (JSON), `env` (JSON), `status`
+- `mcp_oauth_tokens` テーブル: `server_id`, `access_token`, `refresh_token`, `expires_at` — MCP サーバーが必要とする外部 API (GitHub, Slack 等) の認証トークンをセキュアに管理
 - ランタイム接続: `@modelcontextprotocol/sdk` による通信
 
 ---
