@@ -11,7 +11,7 @@
     "lint": "echo 'no lint configured yet'",
     "test": "vitest run",
     "test:watch": "vitest",
-    "electron:dev": "electron .",
+    "electron:dev": "node scripts/dev.mjs",
     "electron:build": "electron-builder"
   },
   "dependencies": {

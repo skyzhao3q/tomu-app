@@ -5,14 +5,16 @@ import {
   nativeImage,
   type BrowserWindowConstructorOptions,
 } from "electron";
-import { fork, type ChildProcess } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { createTray } from "./tray.js";
 import { isQuitting, setQuitting } from "./app-state.js";
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = !app.isPackaged;
-const EXPRESS_PORT = 23001;
-const VIEWER_DEV_URL = `http://localhost:5173`;
+const EXPRESS_PORT = 33001;
+const VIEWER_DEV_URL = `http://localhost:55173`;
 
 let mainWindow: BrowserWindow | null = null;
 let serverProcess: ChildProcess | null = null;
@@ -65,11 +67,19 @@ function createWindow(): BrowserWindow {
   return win;
 }
 
-function startExpressServer(): ChildProcess {
-  const serverEntry = path.join(__dirname, "..", "main", "index.js");
-  const child = fork(serverEntry, [], {
+function startExpressServer(): ChildProcess | null {
+  // In dev, the Express server is started externally by the launcher script (scripts/dev.mjs)
+  if (isDev) return null;
+
+  // Prod: run compiled JS via system node
+  const desktopRoot = path.resolve(__dirname, "..", "..");
+  const command = "node";
+  const args = [path.join(__dirname, "..", "main", "index.js")];
+
+  const child = spawn(command, args, {
     env: { ...process.env, PORT: String(EXPRESS_PORT) },
-    stdio: "pipe",
+    stdio: ["ignore", "pipe", "pipe"],
+    cwd: desktopRoot,
   });
 
   child.stdout?.on("data", (data: Buffer) => {
@@ -89,26 +99,59 @@ function startExpressServer(): ChildProcess {
 }
 
 function setContentSecurityPolicy(): void {
+  // Skip CSP in dev — Vite injects inline scripts and uses WebSocket for HMR
+  if (isDev) return;
+
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({
       responseHeaders: {
         ...details.responseHeaders,
         "Content-Security-Policy": [
-          "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://localhost:23001 ws://localhost:5173; img-src 'self' data:; font-src 'self'",
+          "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://localhost:33001; img-src 'self' data:; font-src 'self'",
         ],
       },
     });
   });
 }
 
+async function waitForServer(url: string, timeoutMs = 15000): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const res = await fetch(url);
+      if (res.ok) return;
+    } catch {
+      // not ready yet
+    }
+    await new Promise((r) => setTimeout(r, 300));
+  }
+  console.warn(`[electron] Timed out waiting for ${url}`);
+}
+
 app.on("before-quit", () => {
   setQuitting(true);
 });
 
-app.on("ready", () => {
+app.on("ready", async () => {
   setContentSecurityPolicy();
-  serverProcess = startExpressServer();
+
+  if (isDev) {
+    // Both servers started by launcher script — wait for them
+    console.log("[electron] Waiting for servers...");
+    await Promise.all([
+      waitForServer(VIEWER_DEV_URL),
+      waitForServer(`http://localhost:${EXPRESS_PORT}/api/health`),
+    ]);
+    console.log("[electron] Servers ready");
+  } else {
+    serverProcess = startExpressServer();
+  }
+
   mainWindow = createWindow();
+
+  if (isDev) {
+    mainWindow.webContents.openDevTools({ mode: "detach" });
+  }
 
   const trayIcon = nativeImage.createEmpty();
   createTray(trayIcon, mainWindow);

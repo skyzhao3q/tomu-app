@@ -5,11 +5,11 @@ import routes from "./routes/index.js";
 import { cleanupStaleMemories } from "./memory.js";
 
 const app = express();
-const port = Number(process.env.PORT) || 23001;
+const port = Number(process.env.PORT) || 33001;
 
 app.use(
   cors({
-    origin: ["http://localhost:5173"],
+    origin: ["http://localhost:55173"],
     credentials: true,
     allowedHeaders: ["Content-Type", "Authorization"],
   }),
