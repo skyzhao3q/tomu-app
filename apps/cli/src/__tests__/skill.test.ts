@@ -118,4 +118,55 @@ describe("tomu skill", () => {
     const result = await runCommand(createProgram(), ["skill", "uninstall", "s1"]);
     expect(result.stdout).toContain("✅ Skill s1 uninstalled.");
   });
+
+  test("skill search shows results", async () => {
+    const mock = await createMockServer([
+      {
+        method: "GET",
+        path: "/api/skills/search",
+        handler: (_req, res) =>
+          jsonResponse(res, [
+            { id: "s1", name: "web-search", description: "Search the web" },
+          ]),
+      },
+    ]);
+    close = mock.close;
+    vi.stubEnv("TOMU_API_URL", `http://localhost:${mock.port}`);
+
+    const result = await runCommand(createProgram(), ["skill", "search", "web"]);
+    expect(result.stdout).toContain("web-search");
+    expect(result.stdout).toContain("Search the web");
+  });
+
+  test("skill search empty shows message", async () => {
+    const mock = await createMockServer([
+      {
+        method: "GET",
+        path: "/api/skills/search",
+        handler: (_req, res) => jsonResponse(res, []),
+      },
+    ]);
+    close = mock.close;
+    vi.stubEnv("TOMU_API_URL", `http://localhost:${mock.port}`);
+
+    const result = await runCommand(createProgram(), ["skill", "search", "nothing"]);
+    expect(result.stdout).toContain("No skills found.");
+  });
+
+  test("skill find is alias for search", async () => {
+    const mock = await createMockServer([
+      {
+        method: "GET",
+        path: "/api/skills/search",
+        handler: (_req, res) =>
+          jsonResponse(res, [{ id: "s2", name: "calculator", description: "Math helper" }]),
+      },
+    ]);
+    close = mock.close;
+    vi.stubEnv("TOMU_API_URL", `http://localhost:${mock.port}`);
+
+    const result = await runCommand(createProgram(), ["skill", "find", "calc"]);
+    expect(result.stdout).toContain("calculator");
+    expect(result.stdout).toContain("Math helper");
+  });
 });

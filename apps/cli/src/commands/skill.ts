@@ -135,4 +135,62 @@ export function registerSkill(program: Command): void {
         process.exit(1);
       }
     });
+
+  skill
+    .command("search <query>")
+    .description("Search skills via skills.sh")
+    .option("--json", "Output raw JSON")
+    .action(async (query: string, opts: { json?: boolean }) => {
+      const data = await apiFetch<Array<{ id: string; name: string; description?: string }>>(
+        "GET",
+        `/skills/search?q=${encodeURIComponent(query)}`,
+      );
+      if (opts.json) {
+        console.log(formatJson(data));
+        return;
+      }
+      if (data.length === 0) {
+        console.log("No skills found.");
+        return;
+      }
+      console.log(
+        formatTable(
+          data.map((s) => ({ id: s.id, name: s.name, description: s.description ?? "" })),
+          [
+            { key: "id", label: "ID" },
+            { key: "name", label: "Name" },
+            { key: "description", label: "Description" },
+          ],
+        ),
+      );
+    });
+
+  skill
+    .command("find <query>")
+    .description("Alias for skill search")
+    .option("--json", "Output raw JSON")
+    .action(async (query: string, opts: { json?: boolean }) => {
+      const data = await apiFetch<Array<{ id: string; name: string; description?: string }>>(
+        "GET",
+        `/skills/search?q=${encodeURIComponent(query)}`,
+      );
+      if (opts.json) {
+        console.log(formatJson(data));
+        return;
+      }
+      if (data.length === 0) {
+        console.log("No skills found.");
+        return;
+      }
+      console.log(
+        formatTable(
+          data.map((s) => ({ id: s.id, name: s.name, description: s.description ?? "" })),
+          [
+            { key: "id", label: "ID" },
+            { key: "name", label: "Name" },
+            { key: "description", label: "Description" },
+          ],
+        ),
+      );
+    });
 }

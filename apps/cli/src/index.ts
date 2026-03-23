@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env tsx
 import { Command } from "commander";
 import { registerStatus } from "./commands/status.js";
 import { registerConfig } from "./commands/config.js";
@@ -16,6 +16,17 @@ import { registerExport } from "./commands/export.js";
 import { registerThread } from "./commands/thread.js";
 import { registerModel } from "./commands/model.js";
 import { registerVersion } from "./commands/version.js";
+import { registerVoices } from "./commands/voices.js";
+import { registerImage } from "./commands/image.js";
+import { registerHeartbeat } from "./commands/heartbeat.js";
+import { registerCron } from "./commands/cron.js";
+import { registerWorkspace } from "./commands/workspace.js";
+import { registerUpdate } from "./commands/update.js";
+import { registerDm } from "./commands/dm.js";
+import { registerMsg } from "./commands/msg.js";
+import { registerSing } from "./commands/sing.js";
+import { registerEmotion } from "./commands/emotion.js";
+import { registerBrowser } from "./commands/browser.js";
 import { ApiError, ConnectionError } from "./lib/errors.js";
 
 function wrapAction(fn: (...args: unknown[]) => Promise<void>) {
@@ -72,6 +83,17 @@ export function createProgram(): Command {
   registerThread(program);
   registerModel(program);
   registerVersion(program);
+  registerVoices(program);
+  registerImage(program);
+  registerHeartbeat(program);
+  registerCron(program);
+  registerWorkspace(program);
+  registerUpdate(program);
+  registerDm(program);
+  registerMsg(program);
+  registerSing(program);
+  registerEmotion(program);
+  registerBrowser(program);
 
   // Wrap all command actions with error handling
   wrapCommands(program);
