@@ -2,7 +2,7 @@ import { useState, useCallback, useMemo } from 'react';
 import { useAtom, useSetAtom } from 'jotai';
 import { cn } from '@tomu/ui';
 import type { Thread, Message, ContentBlock } from '@tomu/core';
-import { threadsAtom, activeThreadIdAtom, messagesAtom, memoryPanelOpenAtom, settingsModalOpenAtom } from '../store/atoms';
+import { threadsAtom, activeThreadIdAtom, messagesAtom, memoryPanelOpenAtom, usageDashboardOpenAtom, settingsModalOpenAtom } from '../store/atoms';
 import { api } from '../lib/api';
 import type { ChatMessage } from '../types';
 
@@ -70,6 +70,7 @@ export function Sidebar() {
   const [activeThreadId, setActiveThreadId] = useAtom(activeThreadIdAtom);
   const setMessages = useSetAtom(messagesAtom);
   const setMemoryPanelOpen = useSetAtom(memoryPanelOpenAtom);
+  const setUsageDashboardOpen = useSetAtom(usageDashboardOpenAtom);
   const setSettingsModalOpen = useSetAtom(settingsModalOpenAtom);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
 
@@ -233,6 +234,17 @@ export function Sidebar() {
             <path d="M9 18l3 3 3-3" />
           </svg>
           Memory
+        </button>
+        <button
+          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-fg-secondary hover:bg-bg-tertiary hover:text-fg-primary"
+          onClick={() => setUsageDashboardOpen(true)}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M18 20V10" />
+            <path d="M12 20V4" />
+            <path d="M6 20v-6" />
+          </svg>
+          Usage
         </button>
         <button
           className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-fg-secondary hover:bg-bg-tertiary hover:text-fg-primary"

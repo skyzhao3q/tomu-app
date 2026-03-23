@@ -25,3 +25,4 @@ export const messagesAtom = atom<ChatMessage[]>([]);
 export const memoryPanelOpenAtom = atom<boolean>(false);
 export const settingsModalOpenAtom = atom<boolean>(false);
 export const searchModalOpenAtom = atom<boolean>(false);
+export const usageDashboardOpenAtom = atom<boolean>(false);

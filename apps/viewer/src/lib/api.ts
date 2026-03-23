@@ -121,6 +121,33 @@ export const api = {
   searchThreads: (query: string, limit?: number) =>
     fetchJSON<Array<{ thread_id: string; title: string; snippet: string; rank: number }>>('/threads/search', { method: 'POST', body: { query, limit } }),
 
+  // Usage
+  getUsage: (days?: number) =>
+    fetchJSON<{ total_input_tokens: number; total_output_tokens: number; total_requests: number; by_day: Array<{ date: string; input_tokens: number; output_tokens: number; requests: number }>; by_model: Array<{ model_id: string; provider_id: string; input_tokens: number; output_tokens: number; requests: number }> }>(`/usage${days ? `?days=${days}` : ''}`),
+  getUsageSummary: () =>
+    fetchJSON<{ total_input_tokens: number; total_output_tokens: number; total_requests: number }>('/usage/summary'),
+
+  // MCP
+  getMcpServers: () => fetchJSON<Array<{ name: string; command: string; args: string[]; env: Record<string, string> }>>('/mcp/servers'),
+  addMcpServer: (data: { name: string; command: string; args: string[]; env?: Record<string, string> }) =>
+    fetchJSON<void>('/mcp/servers', { method: 'POST', body: data }),
+  deleteMcpServer: (name: string) =>
+    fetchJSON<void>(`/mcp/servers/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+
+  // Plugins
+  getPlugins: () => fetchJSON<Array<{ name: string; version: string; description: string; enabled: boolean }>>('/plugins'),
+  installPlugin: (source: string) =>
+    fetchJSON<void>('/plugins', { method: 'POST', body: { source } }),
+  uninstallPlugin: (name: string) =>
+    fetchJSON<void>(`/plugins/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+
+  // Export/Import
+  exportThreads: () => fetchJSON<unknown>('/export/threads'),
+  exportMemories: () => fetchJSON<unknown>('/export/memories'),
+  exportSettings: () => fetchJSON<unknown>('/export/settings'),
+  importThreads: (data: unknown) => fetchJSON<void>('/import/threads', { method: 'POST', body: data }),
+  importMemories: (data: unknown) => fetchJSON<void>('/import/memories', { method: 'POST', body: data }),
+
   // Chat (SSE streaming)
   chatCompletions: (body: ChatRequest, signal?: AbortSignal) => {
     return fetch(`${API_BASE}/chat/completions`, {

@@ -5,6 +5,34 @@ import type { Provider, Person, Skill, Config } from '@tomu/core';
 import { settingsModalOpenAtom, settingsAtom, providersAtom } from '../store/atoms';
 import { api } from '../lib/api';
 
+function downloadJson(data: unknown, filename: string) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function importJsonFile(handler: (data: unknown) => Promise<void>) {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.json';
+  input.onchange = async () => {
+    const file = input.files?.[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      await handler(data);
+    } catch {
+      // ignore
+    }
+  };
+  input.click();
+}
+
 type Tab = 'general' | 'providers' | 'memory' | 'people' | 'skills' | 'integrations';
 
 const TABS: { id: Tab; label: string }[] = [
@@ -91,6 +119,60 @@ function GeneralTab() {
           className="w-64"
           disabled={saving}
         />
+      </div>
+
+      {/* Export & Import */}
+      <div className="flex flex-col gap-3">
+        <label className="text-sm font-medium text-fg-secondary">Export & Import</label>
+        <div className="flex flex-wrap gap-2">
+          <button
+            className="rounded-md border border-border px-3 py-1.5 text-xs text-fg-secondary hover:bg-bg-tertiary"
+            onClick={async () => {
+              try {
+                const data = await api.exportThreads();
+                downloadJson(data, 'tomu-threads.json');
+              } catch { /* ignore */ }
+            }}
+          >
+            Export Threads
+          </button>
+          <button
+            className="rounded-md border border-border px-3 py-1.5 text-xs text-fg-secondary hover:bg-bg-tertiary"
+            onClick={async () => {
+              try {
+                const data = await api.exportMemories();
+                downloadJson(data, 'tomu-memories.json');
+              } catch { /* ignore */ }
+            }}
+          >
+            Export Memories
+          </button>
+          <button
+            className="rounded-md border border-border px-3 py-1.5 text-xs text-fg-secondary hover:bg-bg-tertiary"
+            onClick={async () => {
+              try {
+                const data = await api.exportSettings();
+                downloadJson(data, 'tomu-settings.json');
+              } catch { /* ignore */ }
+            }}
+          >
+            Export Settings
+          </button>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            className="rounded-md border border-border px-3 py-1.5 text-xs text-fg-secondary hover:bg-bg-tertiary"
+            onClick={() => importJsonFile((data) => api.importThreads(data))}
+          >
+            Import Threads
+          </button>
+          <button
+            className="rounded-md border border-border px-3 py-1.5 text-xs text-fg-secondary hover:bg-bg-tertiary"
+            onClick={() => importJsonFile((data) => api.importMemories(data))}
+          >
+            Import Memories
+          </button>
+        </div>
       </div>
 
       {/* Version */}
@@ -604,10 +686,191 @@ function SkillsTab() {
 // ---------------------------------------------------------------------------
 
 function IntegrationsTab() {
+  // MCP Servers
+  const [mcpServers, setMcpServers] = useState<Array<{ name: string; command: string; args: string[]; env: Record<string, string> }>>([]);
+  const [showMcpForm, setShowMcpForm] = useState(false);
+  const [mcpName, setMcpName] = useState('');
+  const [mcpCommand, setMcpCommand] = useState('');
+  const [mcpArgs, setMcpArgs] = useState('');
+
+  // Plugins
+  const [plugins, setPlugins] = useState<Array<{ name: string; version: string; description: string; enabled: boolean }>>([]);
+  const [pluginSource, setPluginSource] = useState('');
+  const [showPluginForm, setShowPluginForm] = useState(false);
+
+  useEffect(() => {
+    api.getMcpServers().then(setMcpServers).catch(() => {});
+    api.getPlugins().then(setPlugins).catch(() => {});
+  }, []);
+
+  const handleAddMcp = async () => {
+    if (!mcpName.trim() || !mcpCommand.trim()) return;
+    try {
+      await api.addMcpServer({
+        name: mcpName,
+        command: mcpCommand,
+        args: mcpArgs ? mcpArgs.split(' ') : [],
+      });
+      const updated = await api.getMcpServers();
+      setMcpServers(updated);
+      setShowMcpForm(false);
+      setMcpName('');
+      setMcpCommand('');
+      setMcpArgs('');
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleDeleteMcp = async (name: string) => {
+    try {
+      await api.deleteMcpServer(name);
+      setMcpServers((prev) => prev.filter((s) => s.name !== name));
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleInstallPlugin = async () => {
+    if (!pluginSource.trim()) return;
+    try {
+      await api.installPlugin(pluginSource);
+      const updated = await api.getPlugins();
+      setPlugins(updated);
+      setShowPluginForm(false);
+      setPluginSource('');
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleUninstallPlugin = async (name: string) => {
+    try {
+      await api.uninstallPlugin(name);
+      setPlugins((prev) => prev.filter((p) => p.name !== name));
+    } catch {
+      // ignore
+    }
+  };
+
   return (
-    <div className="flex flex-col gap-4">
-      <h3 className="text-lg font-semibold text-fg-primary">Integrations</h3>
-      <p className="text-sm text-fg-muted">Coming soon.</p>
+    <div className="flex flex-col gap-6">
+      {/* MCP Servers */}
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-fg-primary">MCP Servers</h3>
+          <button
+            className="rounded-md border border-border px-3 py-1.5 text-sm text-fg-secondary hover:bg-bg-tertiary"
+            onClick={() => setShowMcpForm(!showMcpForm)}
+          >
+            {showMcpForm ? 'Cancel' : 'Add Server'}
+          </button>
+        </div>
+
+        {showMcpForm && (
+          <div className="flex flex-col gap-3 rounded-lg border border-border bg-bg-tertiary p-4">
+            <input
+              className="rounded-md border border-border bg-bg-primary px-3 py-1.5 text-sm text-fg-primary placeholder:text-fg-muted"
+              placeholder="Server name"
+              value={mcpName}
+              onChange={(e) => setMcpName(e.target.value)}
+            />
+            <input
+              className="rounded-md border border-border bg-bg-primary px-3 py-1.5 text-sm text-fg-primary placeholder:text-fg-muted"
+              placeholder="Command (e.g. npx)"
+              value={mcpCommand}
+              onChange={(e) => setMcpCommand(e.target.value)}
+            />
+            <input
+              className="rounded-md border border-border bg-bg-primary px-3 py-1.5 text-sm text-fg-primary placeholder:text-fg-muted"
+              placeholder="Arguments (space separated)"
+              value={mcpArgs}
+              onChange={(e) => setMcpArgs(e.target.value)}
+            />
+            <button
+              className="self-start rounded-md bg-accent px-4 py-1.5 text-sm text-white hover:bg-accent/80"
+              onClick={handleAddMcp}
+            >
+              Add
+            </button>
+          </div>
+        )}
+
+        {mcpServers.length === 0 && !showMcpForm && (
+          <p className="text-sm text-fg-muted">No MCP servers configured.</p>
+        )}
+
+        <div className="flex flex-col gap-2">
+          {mcpServers.map((s) => (
+            <div key={s.name} className="flex items-center justify-between rounded-lg border border-border bg-bg-tertiary px-4 py-3">
+              <div className="flex flex-col gap-0.5">
+                <span className="text-sm font-medium text-fg-primary">{s.name}</span>
+                <span className="text-xs text-fg-muted">{s.command} {s.args.join(' ')}</span>
+              </div>
+              <button
+                className="rounded px-2 py-1 text-xs text-red-400 hover:bg-bg-primary"
+                onClick={() => handleDeleteMcp(s.name)}
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Plugins */}
+      <div className="flex flex-col gap-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-fg-primary">Plugins</h3>
+          <button
+            className="rounded-md border border-border px-3 py-1.5 text-sm text-fg-secondary hover:bg-bg-tertiary"
+            onClick={() => setShowPluginForm(!showPluginForm)}
+          >
+            {showPluginForm ? 'Cancel' : 'Install Plugin'}
+          </button>
+        </div>
+
+        {showPluginForm && (
+          <div className="flex flex-col gap-3 rounded-lg border border-border bg-bg-tertiary p-4">
+            <input
+              className="rounded-md border border-border bg-bg-primary px-3 py-1.5 text-sm text-fg-primary placeholder:text-fg-muted"
+              placeholder="Plugin source (URL or package name)"
+              value={pluginSource}
+              onChange={(e) => setPluginSource(e.target.value)}
+            />
+            <button
+              className="self-start rounded-md bg-accent px-4 py-1.5 text-sm text-white hover:bg-accent/80"
+              onClick={handleInstallPlugin}
+            >
+              Install
+            </button>
+          </div>
+        )}
+
+        {plugins.length === 0 && !showPluginForm && (
+          <p className="text-sm text-fg-muted">No plugins installed.</p>
+        )}
+
+        <div className="flex flex-col gap-2">
+          {plugins.map((p) => (
+            <div key={p.name} className="flex items-center justify-between rounded-lg border border-border bg-bg-tertiary px-4 py-3">
+              <div className="flex flex-col gap-0.5">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-fg-primary">{p.name}</span>
+                  <span className="rounded bg-bg-primary px-1.5 py-0.5 text-xs text-fg-muted">v{p.version}</span>
+                </div>
+                <span className="text-xs text-fg-muted">{p.description}</span>
+              </div>
+              <button
+                className="rounded px-2 py-1 text-xs text-red-400 hover:bg-bg-primary"
+                onClick={() => handleUninstallPlugin(p.name)}
+              >
+                Uninstall
+              </button>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

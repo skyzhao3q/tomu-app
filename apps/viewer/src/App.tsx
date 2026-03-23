@@ -3,13 +3,15 @@ import { useAtomValue, useSetAtom } from 'jotai';
 import { Sidebar } from './components/Sidebar';
 import { ChatView } from './components/ChatView';
 import { MemoryPanel } from './components/MemoryPanel';
+import { UsageDashboard } from './components/UsageDashboard';
 import { SettingsModal } from './components/SettingsModal';
 import { ThreadSearchModal } from './components/ThreadSearchModal';
-import { activeThreadIdAtom, memoryPanelOpenAtom, settingsModalOpenAtom, searchModalOpenAtom } from './store/atoms';
+import { activeThreadIdAtom, memoryPanelOpenAtom, usageDashboardOpenAtom, settingsModalOpenAtom, searchModalOpenAtom } from './store/atoms';
 
 export function App() {
   const activeThreadId = useAtomValue(activeThreadIdAtom);
   const memoryPanelOpen = useAtomValue(memoryPanelOpenAtom);
+  const usageDashboardOpen = useAtomValue(usageDashboardOpenAtom);
   const settingsModalOpen = useAtomValue(settingsModalOpenAtom);
   const searchModalOpen = useAtomValue(searchModalOpenAtom);
   const setSearchModalOpen = useSetAtom(searchModalOpenAtom);
@@ -38,6 +40,7 @@ export function App() {
         )}
       </main>
       {memoryPanelOpen && <MemoryPanel />}
+      {usageDashboardOpen && <UsageDashboard />}
       {settingsModalOpen && <SettingsModal />}
       {searchModalOpen && <ThreadSearchModal />}
     </div>
