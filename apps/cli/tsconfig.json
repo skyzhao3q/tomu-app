@@ -5,7 +5,4 @@
     "rootDir": "./src"
   },
   "include": ["src"],
-  "references": [
-    { "path": "../../packages/core" }
-  ]
 }
