@@ -5,6 +5,8 @@ import {
   deleteMemory,
   listMemories,
   getMemoryStats,
+  cleanupStaleMemories,
+  rebuildAllEmbeddings,
 } from "../memory.js";
 
 const router: RouterType = Router();
@@ -16,7 +18,7 @@ router.get("/memories", (req, res) => {
   const offset = Number(req.query.offset) || 0;
 
   const memories = listMemories(limit, offset, type);
-  res.json({ memories });
+  res.json(memories);
 });
 
 // Memory stats
@@ -64,6 +66,23 @@ router.post("/memories/search", async (req, res) => {
     const message = e instanceof Error ? e.message : "Unknown error";
     res.status(500).json({ error: message });
   }
+});
+
+// Rebuild embeddings for all memories
+router.post("/memories/rebuild", async (_req, res) => {
+  try {
+    const updated = await rebuildAllEmbeddings();
+    res.json({ status: "ok", updated });
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Unknown error";
+    res.status(500).json({ error: message });
+  }
+});
+
+// Clean up stale temporary memories
+router.delete("/memories/cleanup", (_req, res) => {
+  const deleted = cleanupStaleMemories();
+  res.json({ deleted });
 });
 
 // Delete memory

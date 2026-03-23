@@ -142,7 +142,11 @@ export function listMemories(
   }));
 }
 
-export function getMemoryStats(): { count: number; types: Record<string, number> } {
+export function getMemoryStats(): {
+  total: number;
+  by_type: Record<string, number>;
+  db_size_bytes: number;
+} {
   const countRow = sqlite
     .prepare("SELECT COUNT(*) as count FROM memory_vectors")
     .get() as { count: number };
@@ -151,12 +155,16 @@ export function getMemoryStats(): { count: number; types: Record<string, number>
     .prepare("SELECT type, COUNT(*) as count FROM memory_vectors GROUP BY type")
     .all() as Array<{ type: string; count: number }>;
 
-  const types: Record<string, number> = {};
+  const by_type: Record<string, number> = {};
   for (const row of typeRows) {
-    types[row.type] = row.count;
+    by_type[row.type] = row.count;
   }
 
-  return { count: countRow.count, types };
+  const pageCount = (sqlite.pragma("page_count") as Array<{ page_count: number }>)[0]?.page_count ?? 0;
+  const pageSize = (sqlite.pragma("page_size") as Array<{ page_size: number }>)[0]?.page_size ?? 0;
+  const db_size_bytes = pageCount * pageSize;
+
+  return { total: countRow.count, by_type, db_size_bytes };
 }
 
 // ---------------------------------------------------------------------------
@@ -172,4 +180,27 @@ export function cleanupStaleMemories(): number {
     )
     .run(cutoff.toISOString());
   return result.changes;
+}
+
+// ---------------------------------------------------------------------------
+// Rebuild embeddings
+// ---------------------------------------------------------------------------
+
+export async function rebuildAllEmbeddings(): Promise<number> {
+  const rows = sqlite
+    .prepare("SELECT id, content FROM memory_vectors")
+    .all() as Array<{ id: string; content: string }>;
+
+  const updateStmt = sqlite.prepare(
+    "UPDATE memory_vectors SET embedding = ?, updated_at = ? WHERE id = ?",
+  );
+
+  let updated = 0;
+  for (const row of rows) {
+    const embedding = await generateEmbedding(row.content);
+    updateStmt.run(JSON.stringify(embedding), new Date().toISOString(), row.id);
+    updated++;
+  }
+
+  return updated;
 }
