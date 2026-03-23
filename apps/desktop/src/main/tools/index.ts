@@ -6,6 +6,8 @@ import { executeWrite } from "./write.js";
 import { executeEdit } from "./edit.js";
 import { executeGlob } from "./glob.js";
 import { executeGrep } from "./grep.js";
+import { spawnTask, getTask } from "../tasks.js";
+import { listAgentTypes } from "../subagents.js";
 
 export const agentTools = {
   Bash: tool({
@@ -101,6 +103,56 @@ export const agentTools = {
     }),
     execute: async ({ pattern, path, glob, output_mode }) =>
       executeGrep({ pattern, path, glob, output_mode }),
+  }),
+};
+
+export const taskTools = {
+  Task: tool({
+    description:
+      "Spawn a background sub-agent to work on a task autonomously. Returns a task ID you can use with TaskOutput to check progress. Agent types: coder (write/fix code), explore (research codebase), plan (create plans), general-purpose (any task).",
+    inputSchema: z.object({
+      type: z
+        .string()
+        .describe(
+          "The sub-agent type: coder, explore, plan, general-purpose, statusline-setup, tomu-guide, tomu-operator",
+        ),
+      prompt: z
+        .string()
+        .describe("The task description / instructions for the sub-agent"),
+    }),
+    execute: async ({ type, prompt }) => {
+      const validTypes = listAgentTypes();
+      if (!validTypes.includes(type)) {
+        return `Error: Invalid agent type "${type}". Valid types: ${validTypes.join(", ")}`;
+      }
+      try {
+        const id = spawnTask(type, prompt);
+        return `Task spawned with id: ${id}`;
+      } catch (e) {
+        return `Error spawning task: ${e instanceof Error ? e.message : String(e)}`;
+      }
+    },
+  }),
+
+  TaskOutput: tool({
+    description:
+      "Check the status and result of a background sub-agent task. Returns the current status (running/completed/failed) and the result if completed.",
+    inputSchema: z.object({
+      task_id: z.string().describe("The task ID returned by the Task tool"),
+    }),
+    execute: async ({ task_id }) => {
+      const task = getTask(task_id);
+      if (!task) {
+        return `Error: Task "${task_id}" not found`;
+      }
+      if (task.status === "running") {
+        return `Task ${task_id} is still running (started at ${task.startedAt})`;
+      }
+      if (task.status === "failed") {
+        return `Task ${task_id} failed: ${task.error}`;
+      }
+      return `Task ${task_id} completed:\n\n${task.result}`;
+    },
   }),
 };
 

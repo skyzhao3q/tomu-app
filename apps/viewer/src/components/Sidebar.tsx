@@ -2,7 +2,7 @@ import { useState, useCallback, useMemo } from 'react';
 import { useAtom, useSetAtom } from 'jotai';
 import { cn } from '@tomu/ui';
 import type { Thread, Message, ContentBlock } from '@tomu/core';
-import { threadsAtom, activeThreadIdAtom, messagesAtom, memoryPanelOpenAtom } from '../store/atoms';
+import { threadsAtom, activeThreadIdAtom, messagesAtom, memoryPanelOpenAtom, settingsModalOpenAtom } from '../store/atoms';
 import { api } from '../lib/api';
 import type { ChatMessage } from '../types';
 
@@ -70,6 +70,7 @@ export function Sidebar() {
   const [activeThreadId, setActiveThreadId] = useAtom(activeThreadIdAtom);
   const setMessages = useSetAtom(messagesAtom);
   const setMemoryPanelOpen = useSetAtom(memoryPanelOpenAtom);
+  const setSettingsModalOpen = useSetAtom(settingsModalOpenAtom);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
 
   const grouped = useMemo(
@@ -233,7 +234,10 @@ export function Sidebar() {
           </svg>
           Memory
         </button>
-        <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-fg-secondary hover:bg-bg-tertiary hover:text-fg-primary">
+        <button
+          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-fg-secondary hover:bg-bg-tertiary hover:text-fg-primary"
+          onClick={() => setSettingsModalOpen(true)}
+        >
           <svg
             xmlns="http://www.w3.org/2000/svg"
             width="16"

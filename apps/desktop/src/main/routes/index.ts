@@ -7,6 +7,7 @@ import threads from "./threads.js";
 import skills from "./skills.js";
 import memories from "./memories.js";
 import people from "./people.js";
+import tasks from "./tasks.js";
 
 const router: RouterType = Router();
 
@@ -18,5 +19,6 @@ router.use(threads);
 router.use(skills);
 router.use(memories);
 router.use(people);
+router.use(tasks);
 
 export default router;

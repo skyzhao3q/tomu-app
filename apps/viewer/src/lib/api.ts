@@ -1,4 +1,4 @@
-import type { Provider, Config, Model, Thread } from '@tomu/core';
+import type { Provider, Config, Model, Thread, Person, Skill, SubAgent } from '@tomu/core';
 
 const API_BASE = '/api';
 
@@ -94,6 +94,28 @@ export const api = {
     fetchJSON<{ deleted: number }>('/memories/cleanup', { method: 'DELETE' }),
   searchMemories: (query: string) =>
     fetchJSON<Array<{ id: string; content: string; type: string; score: number }>>('/memories/search', { method: 'POST', body: { query } }),
+
+  // People
+  getPeople: () => fetchJSON<Person[]>('/people'),
+  createPerson: (data: { name: string; metadata: Record<string, unknown>; notes: string }) =>
+    fetchJSON<Person>('/people', { method: 'POST', body: data }),
+  updatePerson: (name: string, data: Partial<Person>) =>
+    fetchJSON<Person>(`/people/${encodeURIComponent(name)}`, { method: 'PUT', body: data }),
+  deletePerson: (name: string) =>
+    fetchJSON<void>(`/people/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+
+  // Skills
+  getSkills: () => fetchJSON<Skill[]>('/skills'),
+  toggleSkill: (id: string) =>
+    fetchJSON<Skill>(`/skills/${id}/toggle`, { method: 'PUT' }),
+
+  // Tasks (sub-agents)
+  getTasks: () => fetchJSON<SubAgent[]>('/tasks'),
+  getTask: (id: string) => fetchJSON<SubAgent>(`/tasks/${id}`),
+  createTask: (type: string, prompt: string) =>
+    fetchJSON<SubAgent>('/tasks', { method: 'POST', body: { subagent_type: type, prompt } }),
+  deleteTask: (id: string) =>
+    fetchJSON<void>(`/tasks/${id}`, { method: 'DELETE' }),
 
   // Chat (SSE streaming)
   chatCompletions: (body: ChatRequest, signal?: AbortSignal) => {
