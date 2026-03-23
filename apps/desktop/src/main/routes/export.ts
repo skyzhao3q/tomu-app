@@ -85,7 +85,7 @@ router.get("/export/threads", (_req, res) => {
 // Export all memories
 router.get("/export/memories", (_req, res) => {
   const memories = sqlite
-    .prepare("SELECT * FROM memories ORDER BY created_at DESC")
+    .prepare("SELECT id, content, type, metadata, thread_id, created_at, updated_at FROM memory_vectors ORDER BY created_at DESC")
     .all() as MemoryRow[];
 
   const result = memories.map((m) => ({

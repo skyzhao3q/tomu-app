@@ -11,7 +11,12 @@ const router: RouterType = Router();
 
 // Spawn a new sub-agent task
 router.post("/tasks", (req, res) => {
-  const { type, prompt } = req.body as { type?: string; prompt?: string };
+  const { subagent_type, type: rawType, prompt } = req.body as {
+    subagent_type?: string;
+    type?: string;
+    prompt?: string;
+  };
+  const type = subagent_type || rawType;
 
   if (!type || !prompt) {
     res.status(400).json({ error: "type and prompt are required" });
