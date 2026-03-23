@@ -191,5 +191,37 @@ sqlite.exec(`
   );
 `);
 
+// ---------------------------------------------------------------------------
+// First-boot: copy bundled skills to config dir
+// ---------------------------------------------------------------------------
+
+function copyBundledSkills(): void {
+  const skillsDir = path.join(CONFIG_DIR, "skills");
+  // Only copy if the skills directory is empty
+  try {
+    const entries = fs.readdirSync(skillsDir);
+    if (entries.length > 0) return;
+  } catch {
+    return;
+  }
+
+  // Find bundled skills relative to process.cwd()
+  const bundledDir = path.resolve(process.cwd(), "assets", "skills");
+  if (!fs.existsSync(bundledDir)) return;
+
+  const skillFolders = fs.readdirSync(bundledDir, { withFileTypes: true });
+  for (const folder of skillFolders) {
+    if (!folder.isDirectory()) continue;
+    const src = path.join(bundledDir, folder.name, "SKILL.md");
+    if (!fs.existsSync(src)) continue;
+
+    const destDir = path.join(skillsDir, folder.name);
+    fs.mkdirSync(destDir, { recursive: true });
+    fs.copyFileSync(src, path.join(destDir, "SKILL.md"));
+  }
+}
+
+copyBundledSkills();
+
 export const db = drizzle(sqlite, { schema });
 export { sqlite };

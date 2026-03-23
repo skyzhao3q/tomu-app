@@ -290,11 +290,31 @@ router.post("/chat/completions", async (req, res) => {
       let usageData = {};
       try {
         const usage = await result.usage;
+        const inputTokens = usage.inputTokens ?? 0;
+        const outputTokens = usage.outputTokens ?? 0;
+        const totalTokens = inputTokens + outputTokens;
         usageData = {
-          prompt_tokens: usage.inputTokens,
-          completion_tokens: usage.outputTokens,
-          total_tokens: (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0),
+          prompt_tokens: inputTokens,
+          completion_tokens: outputTokens,
+          total_tokens: totalTokens,
         };
+
+        // Log usage to database
+        sqlite
+          .prepare(
+            `INSERT INTO usage_logs (id, provider, model, message_id, input_tokens, output_tokens, total_tokens, timestamp)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            crypto.randomUUID(),
+            provider.type,
+            targetModel,
+            null,
+            inputTokens,
+            outputTokens,
+            totalTokens,
+            new Date().toISOString(),
+          );
       } catch {
         // Some providers don't report usage
       }

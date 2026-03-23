@@ -116,11 +116,47 @@ function exportThreadToMarkdown(thread: ThreadRow, messages: Message[]): void {
   ];
 
   for (const msg of messages) {
+    const timestamp = msg.timestamp ? `_${msg.timestamp}_` : "";
+
+    if (msg.role === "tool") {
+      // Tool result message
+      const toolId = msg.tool_call_id || "unknown";
+      const content = typeof msg.content === "string"
+        ? msg.content
+        : msg.content.map((b) => b.text || "").join("");
+      lines.push(
+        `**Tool Result** (${toolId}) ${timestamp}`,
+        "",
+        "```",
+        content.slice(0, 500),
+        "```",
+        "",
+        "---",
+        "",
+      );
+      continue;
+    }
+
     const role = msg.role === "user" ? "User" : "tomu";
+
+    // Include tool calls if present
+    if (msg.tool_calls && msg.tool_calls.length > 0) {
+      lines.push(`**${role}** ${timestamp}`, "");
+      for (const tc of msg.tool_calls) {
+        lines.push(`[Tool: ${tc.name}]`, "");
+        lines.push("```json", tc.arguments || "{}", "```", "");
+      }
+      lines.push("---", "");
+      continue;
+    }
+
     const content = typeof msg.content === "string"
       ? msg.content
       : msg.content.map((b) => b.text || "").join("");
-    lines.push(`**${role}**: ${content}`, "", "---", "");
+
+    if (content) {
+      lines.push(`**${role}** ${timestamp}`, "", content, "", "---", "");
+    }
   }
 
   fs.writeFileSync(path.join(threadsDir, filename), lines.join("\n"), "utf-8");

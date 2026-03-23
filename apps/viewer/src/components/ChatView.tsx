@@ -4,12 +4,18 @@ import { ChatInput } from './ChatInput';
 import { MessageBubble } from './MessageBubble';
 
 export function ChatView() {
-  const { messages, sendMessage, stopGeneration } = useChat();
+  const { messages, sendMessage, stopGeneration, retry } = useChat();
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // Find the last assistant message index
+  let lastAssistantIndex = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === 'assistant') { lastAssistantIndex = i; break; }
+  }
 
   return (
     <div className="flex h-full flex-col">
@@ -20,7 +26,14 @@ export function ChatView() {
               <p className="text-fg-muted">Start a conversation</p>
             </div>
           ) : (
-            messages.map((msg) => <MessageBubble key={msg.id} message={msg} />)
+            messages.map((msg, i) => (
+              <MessageBubble
+                key={msg.id}
+                message={msg}
+                isLast={i === lastAssistantIndex}
+                onRetry={retry}
+              />
+            ))
           )}
           <div ref={bottomRef} />
         </div>

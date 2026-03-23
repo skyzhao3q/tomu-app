@@ -211,5 +211,27 @@ export function useChat() {
     abortRef.current?.abort();
   }, []);
 
-  return { messages, sendMessage, stopGeneration, isLoading };
+  const retry = useCallback(() => {
+    if (isLoading) return;
+
+    // Find the last user message
+    let lastUserIndex = -1;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === 'user') { lastUserIndex = i; break; }
+    }
+    if (lastUserIndex === -1) return;
+
+    const lastUserMessage = messages[lastUserIndex];
+
+    // Remove messages from the last user message onward
+    setMessages((prev) => prev.slice(0, lastUserIndex));
+
+    // Re-send the user message
+    // Use setTimeout to let the state update propagate
+    setTimeout(() => {
+      sendMessage(lastUserMessage.content);
+    }, 0);
+  }, [isLoading, messages, setMessages, sendMessage]);
+
+  return { messages, sendMessage, stopGeneration, retry, isLoading };
 }

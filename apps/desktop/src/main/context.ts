@@ -97,9 +97,71 @@ function buildRagLayer(_userMessage: string): string {
   return "";
 }
 
-function buildSkillsLayer(): string {
-  // TODO: skill matching
-  return "";
+function buildSkillsLayer(userMessage: string): string {
+  const skillsDir = path.join(getConfigDir(), "skills");
+  if (!fs.existsSync(skillsDir)) return "";
+
+  let skills: Array<{ name: string; description: string; instructions: string }>;
+  try {
+    const entries = fs.readdirSync(skillsDir, { withFileTypes: true });
+    skills = [];
+
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const skillPath = path.join(skillsDir, entry.name, "SKILL.md");
+      if (!fs.existsSync(skillPath)) continue;
+
+      const raw = fs.readFileSync(skillPath, "utf-8");
+      const fmMatch = raw.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+      if (!fmMatch) continue;
+
+      const frontmatter = fmMatch[1];
+      const body = fmMatch[2].trim();
+
+      const nameMatch = frontmatter.match(/^name:\s*(.+)$/m);
+      const descMatch = frontmatter.match(/^description:\s*(.+)$/m);
+
+      skills.push({
+        name: nameMatch ? nameMatch[1].trim() : entry.name,
+        description: descMatch ? descMatch[1].trim() : "",
+        instructions: body,
+      });
+    }
+  } catch {
+    return "";
+  }
+
+  if (skills.length === 0) return "";
+
+  // Simple keyword matching: split user message into words, score by overlap
+  const words = userMessage
+    .toLowerCase()
+    .split(/\W+/)
+    .filter((w) => w.length > 2);
+
+  if (words.length === 0) return "";
+
+  const scored = skills.map((skill) => {
+    const haystack = `${skill.name} ${skill.description}`.toLowerCase();
+    let score = 0;
+    for (const word of words) {
+      if (haystack.includes(word)) score++;
+    }
+    return { skill, score };
+  });
+
+  const top = scored
+    .filter((s) => s.score > 0)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 2);
+
+  if (top.length === 0) return "";
+
+  const sections = top.map(
+    (s) => `### ${s.skill.name}\n${s.skill.instructions}`,
+  );
+
+  return `## ACTIVE SKILLS\n${sections.join("\n\n")}`;
 }
 
 function buildToolSchemasLayer(): string {
@@ -136,7 +198,7 @@ export async function buildSystemPrompt(userMessage: string): Promise<string> {
     buildUserLayer(),          // 3. USER.md
     buildMemoryLayer(),        // 4. Long-term memory
     buildRagLayer(userMessage),// 5. RAG results (stub)
-    buildSkillsLayer(),        // 6. Active skills (stub)
+    buildSkillsLayer(userMessage), // 6. Active skills
     buildToolSchemasLayer(),   // 7. Tool schemas (stub)
     buildSystemInfoLayer(),    // 8. System info
   ];

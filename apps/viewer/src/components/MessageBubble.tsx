@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { cn } from '@tomu/ui';
 import type { ChatMessage } from '../types';
@@ -6,6 +6,8 @@ import { ToolCallDisplay } from './ToolCallDisplay';
 
 interface MessageBubbleProps {
   message: ChatMessage;
+  isLast?: boolean;
+  onRetry?: () => void;
 }
 
 function RelativeTime({ timestamp }: { timestamp: string }) {
@@ -17,7 +19,61 @@ function RelativeTime({ timestamp }: { timestamp: string }) {
   );
 }
 
-export function MessageBubble({ message }: MessageBubbleProps) {
+function HoverActions({
+  message,
+  isLast,
+  onRetry,
+}: {
+  message: ChatMessage;
+  isLast?: boolean;
+  onRetry?: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(async () => {
+    await navigator.clipboard.writeText(message.content);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }, [message.content]);
+
+  return (
+    <div className="absolute -top-3 right-2 flex items-center gap-0.5 rounded-md border border-border bg-bg-secondary px-1 py-0.5 opacity-0 shadow-sm transition-opacity group-hover:opacity-100">
+      {/* Copy button */}
+      <button
+        onClick={handleCopy}
+        className="rounded p-1 text-fg-muted hover:bg-bg-tertiary hover:text-fg-primary"
+        aria-label="Copy message"
+      >
+        {copied ? (
+          <svg className="h-3.5 w-3.5 text-green-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M20 6L9 17l-5-5" />
+          </svg>
+        ) : (
+          <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+            <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+          </svg>
+        )}
+      </button>
+
+      {/* Retry button — only for last assistant message */}
+      {message.role === 'assistant' && isLast && onRetry && (
+        <button
+          onClick={onRetry}
+          className="rounded p-1 text-fg-muted hover:bg-bg-tertiary hover:text-fg-primary"
+          aria-label="Retry message"
+        >
+          <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="1 4 1 10 7 10" />
+            <path d="M3.51 15a9 9 0 102.13-9.36L1 10" />
+          </svg>
+        </button>
+      )}
+    </div>
+  );
+}
+
+export function MessageBubble({ message, isLast, onRetry }: MessageBubbleProps) {
   const [showTime, setShowTime] = useState(false);
 
   if (message.role === 'system') {
@@ -33,10 +89,15 @@ export function MessageBubble({ message }: MessageBubbleProps) {
 
   return (
     <div
-      className={cn('flex flex-col gap-1 py-1', isUser ? 'items-end' : 'items-start')}
+      className={cn('group relative flex flex-col gap-1 py-1', isUser ? 'items-end' : 'items-start')}
       onMouseEnter={() => setShowTime(true)}
       onMouseLeave={() => setShowTime(false)}
     >
+      {/* Hover actions */}
+      {message.content && (
+        <HoverActions message={message} isLast={isLast} onRetry={onRetry} />
+      )}
+
       {/* Text content (before tool calls) */}
       {message.content && (
         <div

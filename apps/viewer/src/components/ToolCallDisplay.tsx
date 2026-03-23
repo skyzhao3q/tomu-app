@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { cn } from '@tomu/ui';
 import type { ToolCallInfo } from '../types';
+import { TerminalPreview } from './TerminalPreview';
 
 function formatArgs(name: string, args: Record<string, unknown>): string {
   if (name === 'Bash' && typeof args.command === 'string') {
@@ -82,26 +83,32 @@ export function ToolCallDisplay({ name, args, result, status }: ToolCallInfo) {
 
       {/* Result */}
       {status !== 'running' && result != null && (
-        <div className="border-t border-border">
-          <button
-            className="flex w-full items-center gap-1.5 px-3 py-1 text-xs text-fg-muted hover:text-fg-secondary"
-            onClick={() => setResultOpen((v) => !v)}
-          >
-            <svg
-              className={cn('h-3 w-3 transition-transform', resultOpen && 'rotate-90')}
-              viewBox="0 0 24 24"
-              fill="currentColor"
+        name === 'Bash' && typeof args.command === 'string' ? (
+          <div className="border-t border-border px-2 pb-2">
+            <TerminalPreview command={args.command} output={result} />
+          </div>
+        ) : (
+          <div className="border-t border-border">
+            <button
+              className="flex w-full items-center gap-1.5 px-3 py-1 text-xs text-fg-muted hover:text-fg-secondary"
+              onClick={() => setResultOpen((v) => !v)}
             >
-              <path d="M8 5l8 7-8 7z" />
-            </svg>
-            Result
-          </button>
-          {resultOpen && (
-            <pre className="max-h-64 overflow-auto rounded-b-lg bg-bg-primary px-3 py-2 font-mono text-xs text-fg-secondary">
-              {result}
-            </pre>
-          )}
-        </div>
+              <svg
+                className={cn('h-3 w-3 transition-transform', resultOpen && 'rotate-90')}
+                viewBox="0 0 24 24"
+                fill="currentColor"
+              >
+                <path d="M8 5l8 7-8 7z" />
+              </svg>
+              Result
+            </button>
+            {resultOpen && (
+              <pre className="max-h-64 overflow-auto rounded-b-lg bg-bg-primary px-3 py-2 font-mono text-xs text-fg-secondary">
+                {result}
+              </pre>
+            )}
+          </div>
+        )
       )}
     </div>
   );
