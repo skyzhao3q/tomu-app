@@ -317,8 +317,13 @@ router.post("/threads/:id/messages", (req, res) => {
   }
 
   const { role, content } = req.body as { role: string; content: string };
+  const VALID_ROLES = ["user", "assistant", "system", "tool"] as const;
   if (!role || !content) {
     res.status(400).json({ error: "role and content are required" });
+    return;
+  }
+  if (!VALID_ROLES.includes(role as (typeof VALID_ROLES)[number])) {
+    res.status(400).json({ error: `Invalid role. Must be one of: ${VALID_ROLES.join(", ")}` });
     return;
   }
 

@@ -147,7 +147,8 @@ router.post("/import/threads", (req, res) => {
   );
 
   for (const thread of threads) {
-    const id = thread.id || crypto.randomUUID();
+    // Always generate a fresh UUID — never trust user-supplied IDs for filesystem paths
+    const id = crypto.randomUUID();
 
     insertThread.run(id, thread.title, thread.created_at, thread.updated_at);
 

@@ -44,7 +44,15 @@ export function WidgetFrame({ widgetId, html, title }: WidgetFrameProps) {
           break;
         case 'open-link':
           if (typeof data.url === 'string') {
-            window.open(data.url, '_blank');
+            // Only allow safe http/https URLs — block javascript: and other schemes
+            try {
+              const parsed = new URL(data.url);
+              if (parsed.protocol === 'https:' || parsed.protocol === 'http:') {
+                window.open(data.url, '_blank', 'noopener,noreferrer');
+              }
+            } catch {
+              // Invalid URL — ignore
+            }
           }
           break;
       }

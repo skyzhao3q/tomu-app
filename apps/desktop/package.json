@@ -3,11 +3,16 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "main": "dist/electron/main.js",
   "scripts": {
     "dev": "tsx watch src/main/index.ts",
     "build": "tsc -b",
     "typecheck": "tsc --noEmit",
-    "lint": "echo 'no lint configured yet'"
+    "lint": "echo 'no lint configured yet'",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "electron:dev": "electron .",
+    "electron:build": "electron-builder"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.50",
@@ -27,7 +32,28 @@
     "@types/better-sqlite3": "^7.6.13",
     "@types/cors": "^2.8.17",
     "@types/express": "^5.0.2",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8",
+    "supertest": "^7.0.0",
+    "@types/supertest": "^6.0.2",
+    "vitest": "^3.1.1",
     "tsx": "^4.19.4",
     "typescript": "^5.8.3"
+  },
+  "build": {
+    "appId": "com.tomu.desktop",
+    "productName": "tomu",
+    "mac": {
+      "category": "public.app-category.productivity"
+    },
+    "files": [
+      "dist/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "../viewer/dist",
+        "to": "viewer/dist"
+      }
+    ]
   }
 }
