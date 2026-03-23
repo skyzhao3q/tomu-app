@@ -13,6 +13,19 @@ import mcp from "./mcp.js";
 import usage from "./usage.js";
 import exportImport from "./export.js";
 
+import models from "./models.js";
+import voices from "./voices.js";
+import image from "./image.js";
+import heartbeat from "./heartbeat.js";
+import cron from "./cron.js";
+import workspaces from "./workspaces.js";
+import update from "./update.js";
+import dm from "./dm.js";
+import messages from "./messages.js";
+import sing from "./sing.js";
+import emotion from "./emotion.js";
+import browser from "./browser.js";
+
 const router: RouterType = Router();
 
 router.use(health);
@@ -28,5 +41,18 @@ router.use(plugins);
 router.use(mcp);
 router.use(usage);
 router.use(exportImport);
+
+router.use(models);
+router.use(voices);
+router.use(image);
+router.use(heartbeat);
+router.use(cron);
+router.use(workspaces);
+router.use(update);
+router.use(dm);
+router.use(messages);
+router.use(sing);
+router.use(emotion);
+router.use(browser);
 
 export default router;

@@ -12,11 +12,14 @@
     "typecheck": "turbo typecheck",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,css,md}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,css,md}\"",
+    "tomu": "tsx apps/cli/src/index.ts",
+    "dev:server": "pnpm --filter @tomu/desktop dev",
     "electron:dev": "node apps/desktop/scripts/dev.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",
     "prettier": "^3.5.3",
+    "tsx": "^4.19.3",
     "turbo": "^2.5.0",
     "typescript": "^5.8.3"
   },

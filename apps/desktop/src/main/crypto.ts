@@ -10,6 +10,16 @@ const IV_LENGTH = 12;
 const KEY_FILE = path.join(os.homedir(), ".config", "tomu", ".keyfile");
 
 /**
+ * Deterministic fallback key derived from system identity.
+ * Used as a last-resort decrypt attempt for data encrypted before the
+ * keyfile-based approach was introduced.
+ */
+function getDeterministicKey(): Buffer {
+  const seed = os.hostname() + os.userInfo().username;
+  return crypto.createHash("sha256").update(seed).digest();
+}
+
+/**
  * Returns a 32-byte key stored in ~/.config/tomu/.keyfile.
  * On first call the file is created with a random key.
  * Falls back to hostname+username derivation only if the file cannot be read
@@ -29,8 +39,7 @@ function loadOrCreateKey(): Buffer {
   } catch {
     // Fallback: deterministic key from system identity (less secure but
     // maintains decryptability if the key file is unavailable)
-    const seed = os.hostname() + os.userInfo().username;
-    return crypto.createHash("sha256").update(seed).digest();
+    return getDeterministicKey();
   }
 }
 
@@ -54,7 +63,10 @@ export function encrypt(text: string): string {
 }
 
 export function decrypt(encrypted: string): string {
-  const key = getKey();
+  return decryptWithKey(encrypted, getKey());
+}
+
+function decryptWithKey(encrypted: string, key: Buffer): string {
   const [ivHex, authTagHex, ciphertext] = encrypted.split(":");
   const iv = Buffer.from(ivHex, "hex");
   const authTag = Buffer.from(authTagHex, "hex");
@@ -63,6 +75,32 @@ export function decrypt(encrypted: string): string {
   let decrypted = decipher.update(ciphertext, "hex", "utf8");
   decrypted += decipher.final("utf8");
   return decrypted;
+}
+
+/**
+ * Tries to decrypt with the primary key, then falls back to the deterministic
+ * key. Returns null if both fail (e.g. data encrypted with an unknown old key).
+ * Also returns the key that succeeded so callers can re-encrypt if needed.
+ */
+export function tryDecryptWithFallback(
+  encrypted: string,
+): { plaintext: string; usedFallback: boolean } | null {
+  const primaryKey = getKey();
+  try {
+    return { plaintext: decryptWithKey(encrypted, primaryKey), usedFallback: false };
+  } catch {
+    // Primary key failed — try deterministic fallback
+    try {
+      const fallbackKey = getDeterministicKey();
+      // Only worth trying if the fallback key differs from the primary key
+      if (!fallbackKey.equals(primaryKey)) {
+        return { plaintext: decryptWithKey(encrypted, fallbackKey), usedFallback: true };
+      }
+    } catch {
+      // both failed
+    }
+    return null;
+  }
 }
 
 export function maskApiKey(key: string): string {

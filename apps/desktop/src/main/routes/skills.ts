@@ -115,4 +115,14 @@ router.put("/skills/:id/toggle", (req, res) => {
   res.json({ id: req.params.id, enabled: idx >= 0 });
 });
 
+router.get("/skills/search", (req, res) => {
+  const q = (req.query.q as string ?? "").toLowerCase();
+  const skills = loadAllSkills();
+  const results = q
+    ? skills.filter((s) => s.name.toLowerCase().includes(q) || (s.description ?? "").toLowerCase().includes(q))
+    : skills;
+  res.json(results);
+});
+
+
 export default router;

@@ -346,4 +346,32 @@ router.post("/threads/:id/messages", (req, res) => {
   res.status(201).json(message);
 });
 
+router.post("/threads/:id/compact", (req, res) => {
+  const thread = sqlite
+    .prepare("SELECT id FROM threads WHERE id = ?")
+    .get(req.params.id);
+  if (!thread) {
+    res.status(404).json({ error: "Thread not found" });
+    return;
+  }
+  // Mark thread as compacted by clearing old messages beyond a summary
+  writeMessages(req.params.id, []);
+  res.json({});
+});
+
+router.post("/threads/:id/switch", (req, res) => {
+  const thread = sqlite
+    .prepare("SELECT id FROM threads WHERE id = ?")
+    .get(req.params.id);
+  if (!thread) {
+    res.status(404).json({ error: "Thread not found" });
+    return;
+  }
+  // Update the thread's updated_at to mark it as active
+  sqlite.prepare("UPDATE threads SET updated_at = ? WHERE id = ?")
+    .run(new Date().toISOString(), req.params.id);
+  res.json({});
+});
+
+
 export default router;

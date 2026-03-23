@@ -1,0 +1,18 @@
+import { Router, type Router as RouterType } from "express";
+
+const router: RouterType = Router();
+
+const VOICES = [
+  { id: "alloy", name: "Alloy", language: "en-US" },
+  { id: "echo", name: "Echo", language: "en-US" },
+  { id: "fable", name: "Fable", language: "en-GB" },
+  { id: "onyx", name: "Onyx", language: "en-US" },
+  { id: "nova", name: "Nova", language: "en-US" },
+  { id: "shimmer", name: "Shimmer", language: "en-US" },
+];
+
+router.get("/voices", (_req, res) => {
+  res.json(VOICES);
+});
+
+export default router;

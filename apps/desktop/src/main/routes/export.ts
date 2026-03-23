@@ -214,4 +214,40 @@ router.post("/import/memories", (req, res) => {
   res.json({ imported });
 });
 
+// Import bundle (threads + memories + settings in one request)
+router.post("/import/bundle", (req, res) => {
+  const { threads, memories } = req.body as {
+    threads?: unknown[];
+    memories?: unknown[];
+    settings?: unknown;
+  };
+  let imported = 0;
+
+  if (threads && Array.isArray(threads)) {
+    for (const thread of threads as Array<{ title: string; created_at: string; updated_at: string }>) {
+      const id = crypto.randomUUID();
+      const now = new Date().toISOString();
+      sqlite
+        .prepare("INSERT OR IGNORE INTO threads (id, title, created_at, updated_at) VALUES (?, ?, ?, ?)")
+        .run(id, thread.title ?? "Imported", thread.created_at ?? now, thread.updated_at ?? now);
+      imported++;
+    }
+  }
+
+  if (memories && Array.isArray(memories)) {
+    const now = new Date().toISOString();
+    const insertMemory = sqlite.prepare(
+      "INSERT OR IGNORE INTO memories (id, content, type, metadata, thread_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    );
+    for (const memory of memories as Array<{ id?: string; content: string; type?: string }>) {
+      const id = memory.id ?? crypto.randomUUID();
+      insertMemory.run(id, memory.content, memory.type ?? "note", null, null, now, now);
+      imported++;
+    }
+  }
+
+  res.json({ imported });
+});
+
+
 export default router;

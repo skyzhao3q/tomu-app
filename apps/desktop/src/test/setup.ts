@@ -98,6 +98,26 @@ export function resetTestDb(): void {
     );
   `);
 
+
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS cron_jobs (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL,
+      schedule TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS cron_history (
+      id TEXT PRIMARY KEY,
+      job_id TEXT NOT NULL,
+      run_at TEXT NOT NULL,
+      status TEXT NOT NULL,
+      output TEXT
+    );
+  `);
+
   sqlite.exec(`
     CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
       thread_id UNINDEXED,
