@@ -188,8 +188,11 @@ sqlite.exec(`
 
 sqlite.exec(`
   CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+    thread_id UNINDEXED,
+    message_id UNINDEXED,
+    role UNINDEXED,
     content,
-    thread_id UNINDEXED
+    tokenize='porter unicode61'
   );
 `);
 

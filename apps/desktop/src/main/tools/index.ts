@@ -6,6 +6,8 @@ import { executeWrite } from "./write.js";
 import { executeEdit } from "./edit.js";
 import { executeGlob } from "./glob.js";
 import { executeGrep } from "./grep.js";
+import { executeWidget } from "./widget.js";
+import { executePieChart, executeBarChart } from "./charts.js";
 import { spawnTask, getTask } from "../tasks.js";
 import { listAgentTypes } from "../subagents.js";
 
@@ -103,6 +105,52 @@ export const agentTools = {
     }),
     execute: async ({ pattern, path, glob, output_mode }) =>
       executeGrep({ pattern, path, glob, output_mode }),
+  }),
+
+  widgetRenderer: tool({
+    description:
+      "Render interactive HTML/CSS/JS content as a widget. Use for charts, interactive demos, data visualizations, forms, or any rich content. The HTML should be a complete document with inline styles and scripts.",
+    inputSchema: z.object({
+      html: z.string().describe("Complete HTML document to render"),
+      title: z.string().optional().describe("Widget title"),
+    }),
+    execute: async ({ html, title }) => executeWidget({ html, title }),
+  }),
+
+  pieChart: tool({
+    description:
+      "Generate an interactive pie chart widget. Returns HTML with an inline SVG pie chart.",
+    inputSchema: z.object({
+      title: z.string().describe("Chart title"),
+      data: z
+        .array(
+          z.object({
+            label: z.string(),
+            value: z.number(),
+            color: z.string().optional(),
+          }),
+        )
+        .describe("Chart data"),
+    }),
+    execute: async ({ title, data }) => executePieChart({ title, data }),
+  }),
+
+  barChart: tool({
+    description:
+      "Generate an interactive bar chart widget. Returns HTML with an inline SVG bar chart.",
+    inputSchema: z.object({
+      title: z.string().describe("Chart title"),
+      data: z
+        .array(
+          z.object({
+            label: z.string(),
+            value: z.number(),
+            color: z.string().optional(),
+          }),
+        )
+        .describe("Chart data"),
+    }),
+    execute: async ({ title, data }) => executeBarChart({ title, data }),
   }),
 };
 

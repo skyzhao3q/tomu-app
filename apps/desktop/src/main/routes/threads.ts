@@ -7,6 +7,7 @@ import type { Provider, Message } from "@tomu/core";
 import { decrypt } from "../crypto.js";
 import { getConfigDir, sqlite } from "../db.js";
 import { createLLMProvider } from "../llm.js";
+import { searchMessages } from "../search.js";
 
 const router: RouterType = Router();
 
@@ -207,6 +208,18 @@ export function triggerAutoTitle(
 // ---------------------------------------------------------------------------
 // Routes
 // ---------------------------------------------------------------------------
+
+// Search thread messages (FTS5)
+router.post("/threads/search", (req, res) => {
+  const { query, limit } = req.body as { query: string; limit?: number };
+  if (!query) {
+    res.status(400).json({ error: "query is required" });
+    return;
+  }
+
+  const results = searchMessages(query, limit);
+  res.json(results);
+});
 
 // Create new thread
 router.post("/threads", (_req, res) => {

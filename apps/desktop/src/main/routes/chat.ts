@@ -11,6 +11,7 @@ import { buildSystemPrompt } from "../context.js";
 import { triggerAutoTitle } from "./threads.js";
 import { agentTools, taskTools, redactSecrets } from "../tools/index.js";
 import { storeMemory } from "../memory.js";
+import { indexMessage } from "../search.js";
 
 const router: RouterType = Router();
 
@@ -198,14 +199,16 @@ router.post("/chat/completions", async (req, res) => {
   // Persist the user message to history
   const userMsg = messages[messages.length - 1];
   if (userMsg && userMsg.role === "user") {
+    const userMsgId = crypto.randomUUID();
     const existingMessages = readMessages(activeThreadId);
     existingMessages.push({
-      id: crypto.randomUUID(),
+      id: userMsgId,
       role: "user",
       content: userMsg.content,
       timestamp: new Date().toISOString(),
     });
     writeMessages(activeThreadId, existingMessages);
+    indexMessage(activeThreadId, userMsgId, "user", userMsg.content);
   }
 
   // Set up SSE
@@ -312,9 +315,11 @@ router.post("/chat/completions", async (req, res) => {
       }
 
       // Persist final assistant text
+      let assistantMsgId: string | undefined;
       if (fullResponse) {
+        assistantMsgId = crypto.randomUUID();
         currentMessages.push({
-          id: crypto.randomUUID(),
+          id: assistantMsgId,
           role: "assistant",
           content: fullResponse,
           timestamp: new Date().toISOString(),
@@ -322,6 +327,11 @@ router.post("/chat/completions", async (req, res) => {
       }
 
       writeMessages(activeThreadId, currentMessages);
+
+      // Index assistant message for FTS
+      if (fullResponse && assistantMsgId) {
+        indexMessage(activeThreadId, assistantMsgId, "assistant", fullResponse);
+      }
 
       // Update thread timestamp
       sqlite

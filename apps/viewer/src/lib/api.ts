@@ -117,6 +117,10 @@ export const api = {
   deleteTask: (id: string) =>
     fetchJSON<void>(`/tasks/${id}`, { method: 'DELETE' }),
 
+  // Thread search
+  searchThreads: (query: string, limit?: number) =>
+    fetchJSON<Array<{ thread_id: string; title: string; snippet: string; rank: number }>>('/threads/search', { method: 'POST', body: { query, limit } }),
+
   // Chat (SSE streaming)
   chatCompletions: (body: ChatRequest, signal?: AbortSignal) => {
     return fetch(`${API_BASE}/chat/completions`, {

@@ -1,14 +1,29 @@
-import { useAtomValue } from 'jotai';
+import { useEffect } from 'react';
+import { useAtomValue, useSetAtom } from 'jotai';
 import { Sidebar } from './components/Sidebar';
 import { ChatView } from './components/ChatView';
 import { MemoryPanel } from './components/MemoryPanel';
 import { SettingsModal } from './components/SettingsModal';
-import { activeThreadIdAtom, memoryPanelOpenAtom, settingsModalOpenAtom } from './store/atoms';
+import { ThreadSearchModal } from './components/ThreadSearchModal';
+import { activeThreadIdAtom, memoryPanelOpenAtom, settingsModalOpenAtom, searchModalOpenAtom } from './store/atoms';
 
 export function App() {
   const activeThreadId = useAtomValue(activeThreadIdAtom);
   const memoryPanelOpen = useAtomValue(memoryPanelOpenAtom);
   const settingsModalOpen = useAtomValue(settingsModalOpenAtom);
+  const searchModalOpen = useAtomValue(searchModalOpenAtom);
+  const setSearchModalOpen = useSetAtom(searchModalOpenAtom);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault();
+        setSearchModalOpen((open) => !open);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [setSearchModalOpen]);
 
   return (
     <div className="flex h-screen bg-bg-primary">
@@ -24,6 +39,7 @@ export function App() {
       </main>
       {memoryPanelOpen && <MemoryPanel />}
       {settingsModalOpen && <SettingsModal />}
+      {searchModalOpen && <ThreadSearchModal />}
     </div>
   );
 }

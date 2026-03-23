@@ -4,6 +4,7 @@ import { cn } from '@tomu/ui';
 import type { ChatMessage } from '../types';
 import { ToolCallDisplay } from './ToolCallDisplay';
 import { SubAgentTaskCard } from './SubAgentTaskCard';
+import { WidgetFrame } from './WidgetFrame';
 
 interface MessageBubbleProps {
   message: ChatMessage;
@@ -122,13 +123,33 @@ export function MessageBubble({ message, isLast, onRetry }: MessageBubbleProps) 
       {/* Tool calls */}
       {hasToolCalls && (
         <div className="w-full max-w-[80%]">
-          {message.toolCalls!.map((tc) =>
-            tc.name === 'Task' ? (
-              <SubAgentTaskCard key={tc.id} {...tc} />
-            ) : (
-              <ToolCallDisplay key={tc.id} {...tc} />
-            ),
-          )}
+          {message.toolCalls!.map((tc) => {
+            if (tc.name === 'Task') {
+              return <SubAgentTaskCard key={tc.id} {...tc} />;
+            }
+
+            // Check for widget result
+            const WIDGET_TOOLS = ['widgetRenderer', 'pieChart', 'barChart'];
+            if (WIDGET_TOOLS.includes(tc.name) && tc.result) {
+              try {
+                const parsed = JSON.parse(tc.result);
+                if (parsed && typeof parsed.widget_id === 'string' && typeof parsed.html === 'string') {
+                  return (
+                    <WidgetFrame
+                      key={tc.id}
+                      widgetId={parsed.widget_id}
+                      html={parsed.html}
+                      title={parsed.title}
+                    />
+                  );
+                }
+              } catch {
+                // Not valid JSON, fall through to default display
+              }
+            }
+
+            return <ToolCallDisplay key={tc.id} {...tc} />;
+          })}
         </div>
       )}
 
