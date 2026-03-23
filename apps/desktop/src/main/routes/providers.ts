@@ -3,7 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
 import { ProviderSchema, type Provider, type Model } from "@tomu/core";
-import { encrypt, decrypt, maskApiKey } from "../crypto.js";
+import { encrypt, maskApiKey, tryDecryptWithFallback } from "../crypto.js";
 import { getConfigDir } from "../db.js";
 
 const router: RouterType = Router();
@@ -35,11 +35,29 @@ function writeProviders(providers: Provider[]): void {
   fs.writeFileSync(getStorePath(), JSON.stringify(store, null, 2), "utf-8");
 }
 
-function maskProvider(p: Provider): Provider {
-  return {
-    ...p,
-    api_key: p.api_key ? maskApiKey(decrypt(p.api_key)) : undefined,
-  };
+/**
+ * Returns a copy of the provider with the api_key masked.
+ * If decryption fails with the primary key, falls back to the deterministic key.
+ * If the fallback succeeds, silently re-encrypts and persists the migrated key.
+ * If all decryption fails, returns "***" rather than crashing.
+ */
+function maskProvider(p: Provider, allProviders?: Provider[]): Provider {
+  if (!p.api_key) return p;
+  const result = tryDecryptWithFallback(p.api_key);
+  if (!result) {
+    return { ...p, api_key: "***" };
+  }
+  // Silently migrate: re-encrypt with primary key if we used the fallback
+  if (result.usedFallback && allProviders) {
+    const migrated = { ...p, api_key: encrypt(result.plaintext) };
+    const idx = allProviders.findIndex((x) => x.id === p.id);
+    if (idx !== -1) {
+      allProviders[idx] = migrated;
+      writeProviders(allProviders);
+    }
+    return { ...migrated, api_key: maskApiKey(result.plaintext) };
+  }
+  return { ...p, api_key: maskApiKey(result.plaintext) };
 }
 
 // ---------------------------------------------------------------------------
@@ -47,8 +65,8 @@ function maskProvider(p: Provider): Provider {
 // ---------------------------------------------------------------------------
 
 router.get("/providers", (_req, res) => {
-  const providers = readProviders().map(maskProvider);
-  res.json(providers);
+  const providers = readProviders();
+  res.json(providers.map((p) => maskProvider(p, providers)));
 });
 
 router.post("/providers", (req, res) => {
@@ -115,7 +133,8 @@ router.post("/providers/:id/test", async (req, res) => {
     return;
   }
 
-  const apiKey = provider.api_key ? decrypt(provider.api_key) : "";
+  const decryptResult = provider.api_key ? tryDecryptWithFallback(provider.api_key) : null;
+  const apiKey = decryptResult?.plaintext ?? "";
 
   try {
     switch (provider.type) {
@@ -177,7 +196,8 @@ router.post("/providers/:id/models/fetch", async (req, res) => {
     return;
   }
 
-  const apiKey = provider.api_key ? decrypt(provider.api_key) : "";
+  const decryptResult2 = provider.api_key ? tryDecryptWithFallback(provider.api_key) : null;
+  const apiKey = decryptResult2?.plaintext ?? "";
 
   try {
     let models: Model[] = [];
