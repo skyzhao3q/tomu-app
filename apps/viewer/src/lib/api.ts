@@ -76,6 +76,25 @@ export const api = {
   deleteThread: (id: string) =>
     fetchJSON<void>(`/threads/${id}`, { method: 'DELETE' }),
 
+  // Memories
+  getMemoryStats: () =>
+    fetchJSON<{ total: number; by_type: Record<string, number>; db_size_bytes: number }>('/memories/stats'),
+  getMemories: (limit?: number, type?: string) => {
+    const params = new URLSearchParams();
+    if (limit) params.set('limit', String(limit));
+    if (type) params.set('type', type);
+    const qs = params.toString();
+    return fetchJSON<Array<{ id: string; content: string; type: string; created_at: string }>>(`/memories${qs ? `?${qs}` : ''}`);
+  },
+  deleteMemory: (id: string) =>
+    fetchJSON<void>(`/memories/${id}`, { method: 'DELETE' }),
+  rebuildEmbeddings: () =>
+    fetchJSON<{ status: string }>('/memories/rebuild', { method: 'POST' }),
+  cleanupMemories: () =>
+    fetchJSON<{ deleted: number }>('/memories/cleanup', { method: 'DELETE' }),
+  searchMemories: (query: string) =>
+    fetchJSON<Array<{ id: string; content: string; type: string; score: number }>>('/memories/search', { method: 'POST', body: { query } }),
+
   // Chat (SSE streaming)
   chatCompletions: (body: ChatRequest, signal?: AbortSignal) => {
     return fetch(`${API_BASE}/chat/completions`, {

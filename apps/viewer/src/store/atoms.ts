@@ -22,3 +22,4 @@ export const activeThreadAtom = atom<Thread | undefined>((get) => {
 export const isLoadingAtom = atom<boolean>(false);
 export const currentModelAtom = atom<string | null>(null);
 export const messagesAtom = atom<ChatMessage[]>([]);
+export const memoryPanelOpenAtom = atom<boolean>(false);

@@ -5,6 +5,8 @@ import providers from "./providers.js";
 import chat from "./chat.js";
 import threads from "./threads.js";
 import skills from "./skills.js";
+import memories from "./memories.js";
+import people from "./people.js";
 
 const router: RouterType = Router();
 
@@ -14,5 +16,7 @@ router.use(providers);
 router.use(chat);
 router.use(threads);
 router.use(skills);
+router.use(memories);
+router.use(people);
 
 export default router;

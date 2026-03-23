@@ -1,10 +1,12 @@
 import { useAtomValue } from 'jotai';
 import { Sidebar } from './components/Sidebar';
 import { ChatView } from './components/ChatView';
-import { activeThreadIdAtom } from './store/atoms';
+import { MemoryPanel } from './components/MemoryPanel';
+import { activeThreadIdAtom, memoryPanelOpenAtom } from './store/atoms';
 
 export function App() {
   const activeThreadId = useAtomValue(activeThreadIdAtom);
+  const memoryPanelOpen = useAtomValue(memoryPanelOpenAtom);
 
   return (
     <div className="flex h-screen bg-bg-primary">
@@ -18,6 +20,7 @@ export function App() {
           </div>
         )}
       </main>
+      {memoryPanelOpen && <MemoryPanel />}
     </div>
   );
 }

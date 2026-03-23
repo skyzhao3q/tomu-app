@@ -1,7 +1,9 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
+import matter from "gray-matter";
 import { getConfigDir } from "./db.js";
+import { searchMemories } from "./memory.js";
 
 const MAX_SYSTEM_TOKENS = 8000;
 const CHARS_PER_TOKEN = 4;
@@ -92,9 +94,50 @@ function buildMemoryLayer(): string {
   return parts.length > 0 ? `## MEMORIES\n${parts.join("\n\n")}` : "";
 }
 
-function buildRagLayer(_userMessage: string): string {
-  // TODO: RAG search
-  return "";
+async function buildRagLayer(userMessage: string): Promise<string> {
+  try {
+    const results = await searchMemories(userMessage, 5);
+    if (results.length === 0) return "";
+
+    const items = results
+      .filter((r) => r.similarity > 0.3)
+      .map((r) => `- ${r.content}`);
+
+    if (items.length === 0) return "";
+    return `## RELEVANT MEMORIES\n${items.join("\n")}`;
+  } catch {
+    return "";
+  }
+}
+
+function buildPeopleLayer(userMessage: string): string {
+  const peopleDir = path.join(getConfigDir(), "people");
+  if (!fs.existsSync(peopleDir)) return "";
+
+  try {
+    const files = fs.readdirSync(peopleDir).filter((f) => f.endsWith(".md"));
+    const messageLower = userMessage.toLowerCase();
+    const matched: string[] = [];
+
+    for (const file of files) {
+      const raw = fs.readFileSync(path.join(peopleDir, file), "utf-8");
+      const { data, content } = matter(raw);
+      const name = (data.name as string) || file.replace(".md", "");
+
+      if (messageLower.includes(name.toLowerCase())) {
+        const parts = [`### ${name}`];
+        if (data.relationship) parts.push(`Relationship: ${data.relationship}`);
+        if (data.tags && Array.isArray(data.tags)) parts.push(`Tags: ${data.tags.join(", ")}`);
+        if (content.trim()) parts.push(content.trim());
+        matched.push(parts.join("\n"));
+      }
+    }
+
+    if (matched.length === 0) return "";
+    return `## PERSON CONTEXT\n${matched.join("\n\n")}`;
+  } catch {
+    return "";
+  }
 }
 
 function buildSkillsLayer(userMessage: string): string {
@@ -193,14 +236,15 @@ function buildSystemInfoLayer(): string {
 export async function buildSystemPrompt(userMessage: string): Promise<string> {
   // Layers ordered by priority (highest first)
   const layers = [
-    buildBaseInstructions(),   // 1. Base instructions (highest priority)
-    buildSoulLayer(),          // 2. SOUL.md
-    buildUserLayer(),          // 3. USER.md
-    buildMemoryLayer(),        // 4. Long-term memory
-    buildRagLayer(userMessage),// 5. RAG results (stub)
-    buildSkillsLayer(userMessage), // 6. Active skills
-    buildToolSchemasLayer(),   // 7. Tool schemas (stub)
-    buildSystemInfoLayer(),    // 8. System info
+    buildBaseInstructions(),          // 1. Base instructions (highest priority)
+    buildSoulLayer(),                 // 2. SOUL.md
+    buildUserLayer(),                 // 3. USER.md
+    buildMemoryLayer(),               // 4. Long-term memory
+    await buildRagLayer(userMessage), // 5. RAG results
+    buildPeopleLayer(userMessage),    // 6. Person context
+    buildSkillsLayer(userMessage),    // 7. Active skills
+    buildToolSchemasLayer(),          // 8. Tool schemas
+    buildSystemInfoLayer(),           // 9. System info
   ];
 
   // Token management: truncate lower-priority layers if over budget

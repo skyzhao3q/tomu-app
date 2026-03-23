@@ -172,17 +172,19 @@ sqlite.exec(`
   );
 `);
 
-// Virtual tables
-try {
-  sqlite.exec(`
-    CREATE VIRTUAL TABLE IF NOT EXISTS memory_embeddings USING vec0(
-      memory_id TEXT PRIMARY KEY,
-      embedding FLOAT[1536]
-    );
-  `);
-} catch (e) {
-  console.warn("sqlite-vec not available — memory_embeddings table skipped (needed in Sprint 5)");
-}
+// Memory vectors table (embeddings stored as JSON text)
+sqlite.exec(`
+  CREATE TABLE IF NOT EXISTS memory_vectors (
+    id TEXT PRIMARY KEY,
+    content TEXT NOT NULL,
+    type TEXT NOT NULL CHECK(type IN ('message', 'note', 'temporary')),
+    embedding TEXT NOT NULL,
+    metadata TEXT,
+    thread_id TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+`);
 
 sqlite.exec(`
   CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(

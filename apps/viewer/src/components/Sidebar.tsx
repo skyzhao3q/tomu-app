@@ -2,7 +2,7 @@ import { useState, useCallback, useMemo } from 'react';
 import { useAtom, useSetAtom } from 'jotai';
 import { cn } from '@tomu/ui';
 import type { Thread, Message, ContentBlock } from '@tomu/core';
-import { threadsAtom, activeThreadIdAtom, messagesAtom } from '../store/atoms';
+import { threadsAtom, activeThreadIdAtom, messagesAtom, memoryPanelOpenAtom } from '../store/atoms';
 import { api } from '../lib/api';
 import type { ChatMessage } from '../types';
 
@@ -69,6 +69,7 @@ export function Sidebar() {
   const [threads, setThreads] = useAtom(threadsAtom);
   const [activeThreadId, setActiveThreadId] = useAtom(activeThreadIdAtom);
   const setMessages = useSetAtom(messagesAtom);
+  const setMemoryPanelOpen = useSetAtom(memoryPanelOpenAtom);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
 
   const grouped = useMemo(
@@ -216,9 +217,23 @@ export function Sidebar() {
         )}
       </div>
 
-      {/* Settings */}
+      {/* Memory & Settings */}
       <div className="border-t border-border p-3">
-        <button className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-fg-secondary hover:bg-bg-tertiary hover:text-fg-primary">
+        <button
+          className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-fg-secondary hover:bg-bg-tertiary hover:text-fg-primary"
+          onClick={() => setMemoryPanelOpen(true)}
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 2a4 4 0 014 4c0 1.95-1.4 3.58-3.25 3.93" />
+            <path d="M8 6a4 4 0 018 0" />
+            <path d="M12 2C9.79 2 8 3.79 8 6" />
+            <ellipse cx="12" cy="14" rx="8" ry="6" />
+            <path d="M12 14v4" />
+            <path d="M9 18l3 3 3-3" />
+          </svg>
+          Memory
+        </button>
+        <button className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-fg-secondary hover:bg-bg-tertiary hover:text-fg-primary">
           <svg
             xmlns="http://www.w3.org/2000/svg"
             width="16"

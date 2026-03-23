@@ -1,5 +1,5 @@
 import { Router, type Router as RouterType } from "express";
-import { streamText, stepCountIs } from "ai";
+import { streamText, generateText, stepCountIs } from "ai";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
@@ -10,6 +10,7 @@ import { createLLMProvider } from "../llm.js";
 import { buildSystemPrompt } from "../context.js";
 import { triggerAutoTitle } from "./threads.js";
 import { agentTools, redactSecrets } from "../tools/index.js";
+import { storeMemory } from "../memory.js";
 
 const router: RouterType = Router();
 
@@ -24,6 +25,55 @@ function readProviders(): Provider[] {
   } catch {
     return [];
   }
+}
+
+// ---------------------------------------------------------------------------
+// Auto memory extraction (fire-and-forget)
+// ---------------------------------------------------------------------------
+
+const EXTRACTION_PROMPT =
+  "Extract key facts, decisions, or user preferences from this conversation that would be useful to remember for future conversations. Output a JSON array of strings. If nothing worth remembering, output [].";
+
+function triggerMemoryExtraction(
+  userContent: string,
+  assistantContent: string,
+  threadId: string,
+  provider: Provider,
+  apiKey: string,
+  modelId: string,
+): void {
+  (async () => {
+    try {
+      const llm = createLLMProvider(provider, apiKey);
+      const prompt = [
+        EXTRACTION_PROMPT,
+        "",
+        "User: " + userContent,
+        "",
+        "Assistant: " + assistantContent,
+      ].join("\n");
+
+      const { text } = await generateText({
+        model: llm(modelId),
+        messages: [{ role: "user", content: prompt }],
+      });
+
+      // Parse the JSON array from the response
+      const jsonMatch = text.match(/\[[\s\S]*\]/);
+      if (!jsonMatch) return;
+
+      const facts = JSON.parse(jsonMatch[0]) as string[];
+      if (!Array.isArray(facts) || facts.length === 0) return;
+
+      for (const fact of facts) {
+        if (typeof fact === "string" && fact.trim()) {
+          await storeMemory(fact.trim(), "temporary", threadId);
+        }
+      }
+    } catch (e) {
+      console.warn("Memory extraction failed:", e instanceof Error ? e.message : e);
+    }
+  })();
 }
 
 // ---------------------------------------------------------------------------
@@ -285,6 +335,19 @@ router.post("/chat/completions", async (req, res) => {
       ).length;
       if (assistantCount === 1) {
         triggerAutoTitle(activeThreadId, lastUserMessage, fullResponse);
+      }
+
+      // Trigger background memory extraction after a few exchanges
+      const userMessageCount = allMessages.filter((m) => m.role === "user").length;
+      if (userMessageCount >= 2 && fullResponse) {
+        triggerMemoryExtraction(
+          lastUserMessage,
+          fullResponse,
+          activeThreadId,
+          provider,
+          apiKey,
+          targetModel,
+        );
       }
 
       let usageData = {};
