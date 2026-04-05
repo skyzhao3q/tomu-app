@@ -1,5 +1,5 @@
 import { Router, type Router as RouterType } from "express";
-import { streamText, generateText, stepCountIs } from "ai";
+import { streamText, generateText, stepCountIs, type ModelMessage } from "ai";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
@@ -168,18 +168,50 @@ router.post("/chat/completions", async (req, res) => {
   const activeThreadId = thread_id || createThread();
 
   // Load existing messages from thread if thread_id was provided
-  let conversationMessages: Array<{ role: "system" | "user" | "assistant"; content: string }>;
+  let conversationMessages: ModelMessage[];
   if (thread_id) {
     const existing = readMessages(thread_id);
-    conversationMessages = existing.map((m) => ({
-      role: m.role as "system" | "user" | "assistant",
-      content: typeof m.content === "string" ? m.content : m.content.map((b) => b.text || "").join(""),
-    }));
+    conversationMessages = existing.map((m): ModelMessage => {
+      // assistant message that contains tool calls (no text)
+      if (m.role === "assistant" && m.tool_calls?.length) {
+        return {
+          role: "assistant",
+          content: m.tool_calls.map((tc) => ({
+            type: "tool-call" as const,
+            toolCallId: tc.id,
+            toolName: tc.name,
+            input: (() => { try { return JSON.parse(tc.arguments); } catch { return {}; } })(),
+          })),
+        };
+      }
+      // tool-result message
+      if (m.role === "tool") {
+        const resultText = typeof m.content === "string"
+          ? m.content
+          : m.content.map((b) => b.text ?? "").join("");
+        return {
+          role: "tool",
+          content: [{
+            type: "tool-result" as const,
+            toolCallId: m.tool_call_id ?? "",
+            toolName: m.tool_name ?? "unknown",
+            output: { type: "text", value: resultText },
+          }],
+        };
+      }
+      // regular system / user / assistant text message
+      return {
+        role: m.role as "system" | "user" | "assistant",
+        content: typeof m.content === "string"
+          ? m.content
+          : m.content.map((b) => b.text ?? "").join(""),
+      };
+    });
     // Append the new user message from the request
     const lastMsg = messages[messages.length - 1];
     if (lastMsg) {
       conversationMessages.push({
-        role: lastMsg.role as "system" | "user" | "assistant",
+        role: lastMsg.role as "user",
         content: lastMsg.content,
       });
     }
@@ -310,6 +342,7 @@ router.post("/chat/completions", async (req, res) => {
           role: "tool",
           content: tc.result,
           tool_call_id: tc.id,
+          tool_name: tc.name,
           timestamp: new Date().toISOString(),
         });
       }

@@ -19,6 +19,7 @@ export const MessageSchema = z.object({
   content: z.union([z.string(), z.array(ContentBlockSchema)]),
   tool_calls: z.array(ToolCallSchema).optional(),
   tool_call_id: z.string().optional(),
+  tool_name: z.string().optional(),
   timestamp: z.string(),
 });
 
