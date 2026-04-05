@@ -6,7 +6,7 @@ import { MemoryPanel } from './components/MemoryPanel';
 import { UsageDashboard } from './components/UsageDashboard';
 import { SettingsModal } from './components/SettingsModal';
 import { ThreadSearchModal } from './components/ThreadSearchModal';
-import { activeThreadIdAtom, memoryPanelOpenAtom, usageDashboardOpenAtom, settingsModalOpenAtom, searchModalOpenAtom, providersAtom, settingsAtom, currentModelAtom } from './store/atoms';
+import { activeThreadIdAtom, memoryPanelOpenAtom, usageDashboardOpenAtom, settingsModalOpenAtom, searchModalOpenAtom, providersAtom, settingsAtom, currentModelAtom, threadsAtom } from './store/atoms';
 import { api } from './lib/api';
 
 export function App() {
@@ -19,18 +19,20 @@ export function App() {
   const setProviders = useSetAtom(providersAtom);
   const setSettings = useSetAtom(settingsAtom);
   const setCurrentModel = useSetAtom(currentModelAtom);
+  const setThreads = useSetAtom(threadsAtom);
 
   useEffect(() => {
-    Promise.all([api.getProviders(), api.getSettings()])
-      .then(([providers, settings]) => {
+    Promise.all([api.getProviders(), api.getSettings(), api.getThreads()])
+      .then(([providers, settings, threads]) => {
         setProviders(providers);
         setSettings(settings);
+        setThreads(threads);
         if (settings.default_model_id) {
           setCurrentModel(settings.default_model_id);
         }
       })
       .catch(() => {});
-  }, [setProviders, setSettings, setCurrentModel]);
+  }, [setProviders, setSettings, setCurrentModel, setThreads]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
