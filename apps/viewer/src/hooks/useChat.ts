@@ -90,6 +90,7 @@ export function useChat() {
         const decoder = new TextDecoder();
         let buffer = '';
         let accumulatedText = '';
+        let accumulatedReasoning = '';
         let toolCalls: ToolCallInfo[] = [];
 
         const updateAssistant = () => {
@@ -128,7 +129,16 @@ export function useChat() {
                 // Support both named events (event: xxx) and typed payloads (parsed.type)
                 const type = eventType || parsed.type;
 
-                if (type === 'text_delta' || parsed.delta?.content) {
+                if (type === 'reasoning_delta') {
+                  accumulatedReasoning += parsed.text ?? '';
+                  setMessages((prev) =>
+                    prev.map((m) =>
+                      m.id === assistantId
+                        ? { ...m, reasoning: accumulatedReasoning, reasoningState: 'streaming' }
+                        : m,
+                    ),
+                  );
+                } else if (type === 'text_delta' || parsed.delta?.content) {
                   const deltaText = parsed.text ?? parsed.delta?.content ?? '';
                   accumulatedText += deltaText;
                   updateAssistant();
@@ -151,6 +161,13 @@ export function useChat() {
                   );
                   updateAssistant();
                 } else if (type === 'completion' || type === 'done') {
+                  if (accumulatedReasoning) {
+                    setMessages((prev) =>
+                      prev.map((m) =>
+                        m.id === assistantId ? { ...m, reasoningState: 'done' } : m,
+                      ),
+                    );
+                  }
                   if (parsed.thread_id && !activeThreadId) {
                     setActiveThreadId(parsed.thread_id);
                   }

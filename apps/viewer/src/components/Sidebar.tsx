@@ -15,6 +15,8 @@ function toChatMessage(m: Message): ChatMessage {
     id: m.id,
     role: m.role === 'tool' ? 'system' : m.role,
     content,
+    reasoning: m.reasoning,
+    reasoningState: m.reasoning ? 'done' : undefined,
     timestamp: m.timestamp,
   };
 }

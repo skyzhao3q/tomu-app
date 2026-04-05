@@ -71,3 +71,4 @@ credentials.enc
 scripts/test-openrouter.ts
 
 .claude/worktrees/
+.alma-snapshots

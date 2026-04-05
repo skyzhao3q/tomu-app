@@ -256,6 +256,10 @@ router.post("/chat/completions", async (req, res) => {
   try {
     const llmProvider = createLLMProvider(provider, apiKey);
 
+    const providerOptions = provider.type === "gemini"
+      ? { google: { thinkingConfig: { includeThoughts: true } } }
+      : undefined;
+
     const result = streamText({
       model: llmProvider(targetModel),
       system: systemPrompt,
@@ -263,15 +267,24 @@ router.post("/chat/completions", async (req, res) => {
       tools: { ...agentTools, ...taskTools },
       stopWhen: stepCountIs(25),
       abortSignal: abortController.signal,
+      ...(providerOptions && { providerOptions }),
     });
 
     let fullResponse = "";
+    let accumulatedReasoning = "";
     const toolCalls: Array<{ id: string; name: string; args: string; result: string }> = [];
 
     for await (const part of result.fullStream) {
       if (abortController.signal.aborted) break;
 
       switch (part.type) {
+        case "reasoning-delta": {
+          accumulatedReasoning += part.text;
+          res.write(
+            `event: reasoning_delta\ndata: ${JSON.stringify({ text: part.text })}\n\n`,
+          );
+          break;
+        }
         case "text-delta": {
           fullResponse += part.text;
           res.write(
@@ -355,6 +368,7 @@ router.post("/chat/completions", async (req, res) => {
           id: assistantMsgId,
           role: "assistant",
           content: fullResponse,
+          reasoning: accumulatedReasoning || undefined,
           timestamp: new Date().toISOString(),
         });
       }

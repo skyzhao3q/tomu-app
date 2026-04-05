@@ -20,6 +20,7 @@ export const MessageSchema = z.object({
   tool_calls: z.array(ToolCallSchema).optional(),
   tool_call_id: z.string().optional(),
   tool_name: z.string().optional(),
+  reasoning: z.string().optional(),
   timestamp: z.string(),
 });
 

@@ -5,6 +5,7 @@ import type { ChatMessage } from '../types';
 import { ToolCallDisplay } from './ToolCallDisplay';
 import { SubAgentTaskCard } from './SubAgentTaskCard';
 import { WidgetFrame } from './WidgetFrame';
+import { ReasoningBlock } from './ReasoningBlock';
 
 interface MessageBubbleProps {
   message: ChatMessage;
@@ -98,6 +99,16 @@ export function MessageBubble({ message, isLast, onRetry }: MessageBubbleProps) 
       {/* Hover actions */}
       {message.content && (
         <HoverActions message={message} isLast={isLast} onRetry={onRetry} />
+      )}
+
+      {/* Reasoning block (before text content) */}
+      {!isUser && message.reasoning && (
+        <div className="w-full max-w-[80%]">
+          <ReasoningBlock
+            text={message.reasoning}
+            state={message.reasoningState ?? 'done'}
+          />
+        </div>
       )}
 
       {/* Text content (before tool calls) */}
