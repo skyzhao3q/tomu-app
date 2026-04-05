@@ -14,9 +14,10 @@ const repoRoot = path.resolve(desktopRoot, "..", "..");
 const children = [];
 
 function launch(label, command, args, options = {}) {
+  const { stderrFilter, ...spawnOptions } = options;
   const child = spawn(command, args, {
     stdio: ["ignore", "pipe", "pipe"],
-    ...options,
+    ...spawnOptions,
   });
 
   child.stdout?.on("data", (data) => {
@@ -27,7 +28,9 @@ function launch(label, command, args, options = {}) {
 
   child.stderr?.on("data", (data) => {
     for (const line of data.toString().split("\n").filter(Boolean)) {
-      console.error(`[${label}] ${line}`);
+      if (!stderrFilter || !stderrFilter(line)) {
+        console.error(`[${label}] ${line}`);
+      }
     }
   });
 
@@ -98,4 +101,8 @@ try {
   process.exit(1);
 }
 
-launch("electron", "npx", ["electron", "."], { cwd: desktopRoot });
+// Suppress DevTools-internal noise (Autofill CDP, VE context errors from devtools:// URLs)
+launch("electron", "npx", ["electron", "."], {
+  cwd: desktopRoot,
+  stderrFilter: (line) => line.includes("devtools://devtools/bundled"),
+});

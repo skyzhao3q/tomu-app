@@ -1,6 +1,7 @@
 import {
   app,
   BrowserWindow,
+  globalShortcut,
   session,
   nativeImage,
   type BrowserWindowConstructorOptions,
@@ -150,7 +151,11 @@ app.on("ready", async () => {
   mainWindow = createWindow();
 
   if (isDev) {
-    mainWindow.webContents.openDevTools({ mode: "detach" });
+    const accelerator =
+      process.platform === "darwin" ? "Command+Option+I" : "Control+Shift+I";
+    globalShortcut.register(accelerator, () => {
+      mainWindow?.webContents.toggleDevTools();
+    });
   }
 
   const trayIcon = nativeImage.createEmpty();
@@ -172,6 +177,7 @@ app.on("activate", () => {
 });
 
 app.on("quit", () => {
+  globalShortcut.unregisterAll();
   if (serverProcess) {
     serverProcess.kill();
     serverProcess = null;
