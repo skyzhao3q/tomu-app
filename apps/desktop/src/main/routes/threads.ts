@@ -233,7 +233,7 @@ router.post("/threads", (_req, res) => {
     .run(id, "New Chat", now, now);
 
   res.status(201).json({
-    id,
+    thread_id: id,
     title: "New Chat",
     created_at: now,
     updated_at: now,
@@ -243,10 +243,10 @@ router.post("/threads", (_req, res) => {
 
 // List all threads
 router.get("/threads", (_req, res) => {
-  const threads = sqlite
+  const rows = sqlite
     .prepare("SELECT * FROM threads ORDER BY updated_at DESC")
     .all() as ThreadRow[];
-  res.json(threads);
+  res.json(rows.map((r) => ({ thread_id: r.id, title: r.title, created_at: r.created_at, updated_at: r.updated_at, messages: [] })));
 });
 
 // Get thread with messages
@@ -261,7 +261,7 @@ router.get("/threads/:id", (req, res) => {
   }
 
   const messages = readMessages(thread.id);
-  res.json({ ...thread, messages });
+  res.json({ thread_id: thread.id, title: thread.title, created_at: thread.created_at, updated_at: thread.updated_at, messages });
 });
 
 // Get messages for a thread
