@@ -1,12 +1,15 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { useAtom, useAtomValue } from 'jotai';
+import { useAtom, useAtomValue, useSetAtom } from 'jotai';
 import { cn } from '@tomu/ui';
-import { currentModelAtom, providersAtom } from '../store/atoms';
+import { currentModelAtom, providersAtom, settingsAtom } from '../store/atoms';
+import { api } from '../lib/api';
 
 export function ModelSelector() {
   const [open, setOpen] = useState(false);
   const [currentModel, setCurrentModel] = useAtom(currentModelAtom);
   const providers = useAtomValue(providersAtom);
+  const settings = useAtomValue(settingsAtom);
+  const setSettings = useSetAtom(settingsAtom);
   const ref = useRef<HTMLDivElement>(null);
 
   const enabledProviders = providers.filter((p) => p.enabled && p.models.length > 0);
@@ -27,8 +30,12 @@ export function ModelSelector() {
     (modelId: string) => {
       setCurrentModel(modelId);
       setOpen(false);
+      const providerId = enabledProviders.find((p) => p.models.some((m) => m.id === modelId))?.id;
+      api.updateSettings({ ...settings, default_model_id: modelId, default_provider_id: providerId })
+        .then(setSettings)
+        .catch(() => {});
     },
-    [setCurrentModel],
+    [setCurrentModel, enabledProviders, settings, setSettings],
   );
 
   // Close on outside click

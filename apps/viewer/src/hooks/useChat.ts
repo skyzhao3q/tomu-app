@@ -48,7 +48,12 @@ export function useChat() {
       abortRef.current = controller;
 
       try {
-        const activeProvider = providers.find((p) => p.enabled);
+        const activeProviderId = (() => {
+          for (const p of providers) {
+            if (p.models.some((m) => m.id === currentModel)) return p.id;
+          }
+          return providers.find((p) => p.enabled)?.id;
+        })();
         const allMessages = [...messages, userMessage].map((m) => ({
           role: m.role,
           content: m.content,
@@ -59,7 +64,7 @@ export function useChat() {
             model: currentModel ?? '',
             messages: allMessages,
             thread_id: activeThreadId ?? undefined,
-            provider_id: activeProvider?.id,
+            provider_id: activeProviderId,
             stream: true,
           },
           controller.signal,

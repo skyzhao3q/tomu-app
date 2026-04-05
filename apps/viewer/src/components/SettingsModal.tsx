@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useAtom, useSetAtom } from 'jotai';
 import { cn } from '@tomu/ui';
 import type { Provider, Person, Skill, Config } from '@tomu/core';
-import { settingsModalOpenAtom, settingsAtom, providersAtom } from '../store/atoms';
+import { settingsModalOpenAtom, settingsAtom, providersAtom, currentModelAtom } from '../store/atoms';
 import { api } from '../lib/api';
 
 function downloadJson(data: unknown, filename: string) {
@@ -189,6 +189,8 @@ const PROVIDER_TYPES = ['openai', 'anthropic', 'gemini', 'ollama', 'openrouter',
 
 function ProvidersTab() {
   const [providers, setProviders] = useAtom(providersAtom);
+  const [settings, setSettings] = useAtom(settingsAtom);
+  const [currentModel, setCurrentModel] = useAtom(currentModelAtom);
   const [showForm, setShowForm] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [testResults, setTestResults] = useState<Record<string, { success: boolean; error?: string }>>({});
@@ -198,10 +200,6 @@ function ProvidersTab() {
   const [formType, setFormType] = useState<Provider['type']>('openai');
   const [formKey, setFormKey] = useState('');
   const [formUrl, setFormUrl] = useState('');
-
-  useEffect(() => {
-    api.getProviders().then(setProviders).catch(() => {});
-  }, [setProviders]);
 
   const handleAdd = async () => {
     if (!formName.trim()) return;
@@ -246,6 +244,16 @@ function ProvidersTab() {
     try {
       await api.deleteProvider(id);
       setProviders((prev) => prev.filter((p) => p.id !== id));
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleSetDefault = async (modelId: string, providerId: string) => {
+    try {
+      const updated = await api.updateSettings({ ...settings, default_model_id: modelId, default_provider_id: providerId });
+      setSettings(updated);
+      setCurrentModel(modelId);
     } catch {
       // ignore
     }
@@ -361,7 +369,20 @@ function ProvidersTab() {
                 {expandedId === p.id && (
                   <ul className="px-4 pb-3">
                     {p.models.map((m) => (
-                      <li key={m.id} className="py-0.5 text-xs text-fg-secondary">{m.name}</li>
+                      <li key={m.id} className="flex items-center justify-between py-0.5">
+                        <span className="text-xs text-fg-secondary">{m.name}</span>
+                        <button
+                          className={cn(
+                            'rounded px-2 py-0.5 text-xs',
+                            currentModel === m.id
+                              ? 'text-accent'
+                              : 'text-fg-muted hover:text-fg-secondary',
+                          )}
+                          onClick={() => handleSetDefault(m.id, p.id)}
+                        >
+                          {currentModel === m.id ? 'Default ✓' : 'Set default'}
+                        </button>
+                      </li>
                     ))}
                   </ul>
                 )}
