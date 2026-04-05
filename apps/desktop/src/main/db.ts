@@ -186,6 +186,17 @@ sqlite.exec(`
   );
 `);
 
+// Migrate messages_fts if it is missing the message_id column (older schema)
+try {
+  const cols = sqlite.pragma("table_info(messages_fts)") as Array<{ name: string }>;
+  const hasMessageId = cols.some((c) => c.name === "message_id");
+  if (cols.length > 0 && !hasMessageId) {
+    sqlite.exec("DROP TABLE messages_fts");
+  }
+} catch {
+  // Table doesn't exist yet — nothing to migrate
+}
+
 sqlite.exec(`
   CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
     thread_id UNINDEXED,
