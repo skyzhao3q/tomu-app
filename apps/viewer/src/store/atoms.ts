@@ -1,6 +1,6 @@
 import { atom } from 'jotai';
 import type { Thread, Provider, Config, AgentsConfig } from '@tomu/core';
-import type { ChatMessage } from '../types';
+import type { ChatMessage, AgentTask } from '../types';
 
 const defaultConfig: Config = {
   theme: 'dark',
@@ -29,3 +29,5 @@ export const settingsModalOpenAtom = atom<boolean>(false);
 export const searchModalOpenAtom = atom<boolean>(false);
 export const usageDashboardOpenAtom = atom<boolean>(false);
 export const agentsConfigAtom = atom<AgentsConfig | null>(null);
+export const agentTasksAtom = atom<Record<string, AgentTask>>({});
+export const agentWindowOpenAtom = atom<boolean>(false);

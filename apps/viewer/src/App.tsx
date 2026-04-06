@@ -6,6 +6,8 @@ import { MemoryPanel } from './components/MemoryPanel';
 import { UsageDashboard } from './components/UsageDashboard';
 import { SettingsModal } from './components/SettingsModal';
 import { ThreadSearchModal } from './components/ThreadSearchModal';
+import { AgentFloatingButton } from './components/AgentFloatingButton';
+import { AgentStatusWindow } from './components/AgentStatusWindow';
 import { activeThreadIdAtom, memoryPanelOpenAtom, usageDashboardOpenAtom, settingsModalOpenAtom, searchModalOpenAtom, providersAtom, settingsAtom, currentModelAtom, threadsAtom } from './store/atoms';
 import { api } from './lib/api';
 
@@ -61,6 +63,8 @@ export function App() {
       {usageDashboardOpen && <UsageDashboard />}
       {settingsModalOpen && <SettingsModal />}
       {searchModalOpen && <ThreadSearchModal />}
+      <AgentFloatingButton />
+      <AgentStatusWindow />
     </div>
   );
 }

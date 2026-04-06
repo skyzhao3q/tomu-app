@@ -7,9 +7,10 @@ import {
   threadsAtom,
   currentModelAtom,
   providersAtom,
+  agentTasksAtom,
 } from '../store/atoms';
 import { api } from '../lib/api';
-import type { ChatMessage, ToolCallInfo } from '../types';
+import type { ChatMessage, ToolCallInfo, AgentTask } from '../types';
 
 interface ContentBlock {
   type: string;
@@ -46,6 +47,7 @@ export function useChat() {
   const setThreads = useSetAtom(threadsAtom);
   const currentModel = useAtomValue(currentModelAtom);
   const providers = useAtomValue(providersAtom);
+  const setAgentTasks = useSetAtom(agentTasksAtom);
   const abortRef = useRef<AbortController | null>(null);
 
   const sendMessage = useCallback(
@@ -177,22 +179,70 @@ export function useChat() {
                     ),
                   );
                 } else if (type === 'tool_call_start') {
-                  toolCalls = [
-                    ...toolCalls,
-                    {
-                      id: parsed.id,
-                      name: parsed.name,
-                      args: parsed.args ?? {},
+                  const callName = parsed.name as string;
+                  const callType: ToolCallInfo['type'] = callName?.startsWith('skill:') ? 'skill' : 'tool';
+                  const newCall: ToolCallInfo = {
+                    id: parsed.id,
+                    name: callName,
+                    type: callType,
+                    args: parsed.args ?? {},
+                    status: 'running',
+                    startedAt: Date.now(),
+                  };
+                  toolCalls = [...toolCalls, newCall];
+
+                  if (callName === 'Task') {
+                    const agentId = ((parsed.args?.agent_id ?? parsed.args?.type ?? 'general-purpose') as string);
+                    const newTask: AgentTask = {
+                      taskId: parsed.id,
+                      agentId,
                       status: 'running',
-                    },
-                  ];
+                      description: (parsed.args?.prompt ?? '') as string,
+                      input: parsed.args ?? {},
+                      logs: [],
+                      startedAt: Date.now(),
+                      threadId: activeThreadId ?? '',
+                    };
+                    setAgentTasks((prev) => ({ ...prev, [parsed.id]: newTask }));
+                  }
+
                   updateAssistant();
                 } else if (type === 'tool_call_result') {
+                  const existingCall = toolCalls.find((tc) => tc.id === parsed.id);
                   toolCalls = toolCalls.map((tc) =>
                     tc.id === parsed.id
-                      ? { ...tc, result: parsed.result ?? '', status: 'completed' as const }
+                      ? { ...tc, result: parsed.result ?? '', status: 'completed' as const, endedAt: Date.now() }
                       : tc,
                   );
+
+                  if (existingCall?.name === 'Task') {
+                    let taskStatus: AgentTask['status'] = 'success';
+                    let output: string | undefined;
+                    try {
+                      const r = JSON.parse(parsed.result ?? '{}') as Record<string, unknown>;
+                      if (r.status === 'failed' || r.error) taskStatus = 'failed';
+                      output = (r.result ?? r.output ?? parsed.result) as string | undefined;
+                    } catch {
+                      output = parsed.result as string | undefined;
+                    }
+                    setAgentTasks((prev) => {
+                      const existing = prev[parsed.id];
+                      if (!existing) return prev;
+                      return {
+                        ...prev,
+                        [parsed.id]: { ...existing, status: taskStatus, output, endedAt: Date.now() },
+                      };
+                    });
+                    // Auto-cleanup after 5 minutes
+                    setTimeout(() => {
+                      setAgentTasks((prev) => {
+                        const next = { ...prev };
+                        delete next[parsed.id];
+                        return next;
+                      });
+                    }, 5 * 60 * 1000);
+                  }
+
                   updateAssistant();
                 } else if (type === 'completion' || type === 'done') {
                   setMessages((prev) =>
@@ -229,7 +279,7 @@ export function useChat() {
             prev.map((m) => {
               if (m.id !== assistantId) return m;
               const stoppedCalls = m.toolCalls?.map((tc) =>
-                tc.status === 'running' ? { ...tc, status: 'error' as const, result: 'Stopped by user' } : tc,
+                tc.status === 'running' ? { ...tc, status: 'error' as const, result: 'Stopped by user', endedAt: Date.now() } : tc,
               );
               return {
                 ...m,
@@ -238,6 +288,16 @@ export function useChat() {
               };
             }),
           );
+          // Mark any running agent tasks as failed
+          setAgentTasks((prev) => {
+            const updated: typeof prev = {};
+            for (const [id, task] of Object.entries(prev)) {
+              updated[id] = task.status === 'running'
+                ? { ...task, status: 'failed', error: 'Stopped by user', endedAt: Date.now() }
+                : task;
+            }
+            return updated;
+          });
         } else {
           const errorMsg = err instanceof Error ? err.message : 'Unknown error';
           setMessages((prev) =>
@@ -271,6 +331,7 @@ export function useChat() {
       setIsLoading,
       setActiveThreadId,
       setThreads,
+      setAgentTasks,
     ],
   );
 
