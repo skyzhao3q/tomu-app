@@ -310,6 +310,9 @@ export function getHandoffsByMission(missionId: string): AgentHandoff[] {
 
 const tasks = new Map<string, Task>();
 
+// AbortController per active run — allows deleteTask to cancel in-flight LLM calls
+const runControllers = new Map<string, AbortController>();
+
 // ---------------------------------------------------------------------------
 // executeRun — core AI generation loop with per-step checkpointing
 // ---------------------------------------------------------------------------
@@ -343,6 +346,9 @@ async function executeRun(
 
   const accumulated: ModelMessage[] = [...startingMessages];
 
+  const controller = new AbortController();
+  runControllers.set(run.id, controller);
+
   try {
     const { provider, apiKey, modelId } = resolveProvider();
     const llm = createLLMProvider(provider, apiKey);
@@ -353,6 +359,7 @@ async function executeRun(
       messages: startingMessages,
       tools: opts.toolSubset,
       stopWhen: stepCountIs(20),
+      abortSignal: controller.signal,
       onStepFinish({ response }) {
         accumulated.push(...response.messages);
         sqlite
@@ -371,6 +378,10 @@ async function executeRun(
     if (opts.handoffId) updateHandoff(opts.handoffId, run.id, "completed", text.slice(0, 500));
     checkMissionCompletion(opts.missionId);
   } catch (e) {
+    // Run was intentionally stopped via deleteTask — don't record failure or complete the mission
+    if (e instanceof Error && e.name === "AbortError") {
+      return;
+    }
     const errMsg = e instanceof Error ? e.message : String(e);
     task.status = "failed";
     task.error = errMsg;
@@ -378,6 +389,8 @@ async function executeRun(
 
     updateRun(run.id, "failed", errMsg.slice(0, 500));
     if (opts.handoffId) updateHandoff(opts.handoffId, run.id, "failed", errMsg.slice(0, 500));
+  } finally {
+    runControllers.delete(run.id);
   }
 }
 
@@ -605,6 +618,8 @@ export function listTasks(): Task[] {
 }
 
 export function deleteTask(id: string): boolean {
+  runControllers.get(id)?.abort();
+  runControllers.delete(id);
   tasks.delete(id);
   const result = sqlite.prepare("DELETE FROM agent_runs WHERE id = ?").run(id);
   return result.changes > 0;
