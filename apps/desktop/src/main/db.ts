@@ -42,6 +42,8 @@ const DEFAULT_CONFIG: Config = {
   theme: "system",
   language: "en",
   agent_max_iterations: 25,
+  agents_enabled: true,
+  agents_allow_delegation: true,
 };
 
 export function getConfig(): Config {
@@ -215,6 +217,36 @@ sqlite.exec(`
   CREATE INDEX IF NOT EXISTS idx_agent_runs_mission ON agent_runs(mission_id);
   CREATE INDEX IF NOT EXISTS idx_agent_handoffs_mission ON agent_handoffs(mission_id);
 `);
+
+// Agent profiles table (for Settings → Agents UI)
+sqlite.exec(`
+  CREATE TABLE IF NOT EXISTS agent_profiles (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    category TEXT NOT NULL,
+    execution_mode TEXT NOT NULL,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    built_in INTEGER NOT NULL DEFAULT 0,
+    color TEXT NOT NULL DEFAULT '#6B7280',
+    summary TEXT NOT NULL DEFAULT '',
+    focus TEXT NOT NULL DEFAULT '[]',
+    delegates_to TEXT NOT NULL DEFAULT '[]',
+    prompt TEXT NOT NULL DEFAULT '',
+    model TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+`);
+
+// Migration: add model column to agent_profiles if missing
+try {
+  const cols = sqlite.pragma("table_info(agent_profiles)") as Array<{ name: string }>;
+  if (cols.length > 0 && !cols.some((c) => c.name === "model")) {
+    sqlite.exec("ALTER TABLE agent_profiles ADD COLUMN model TEXT");
+  }
+} catch {
+  // Table not yet created — nothing to migrate
+}
 
 // Memory vectors table (embeddings stored as JSON text)
 sqlite.exec(`

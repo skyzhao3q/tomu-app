@@ -25,6 +25,7 @@ import messages from "./messages.js";
 import sing from "./sing.js";
 import emotion from "./emotion.js";
 import browser from "./browser.js";
+import agents from "./agents.js";
 
 const router: RouterType = Router();
 
@@ -54,5 +55,6 @@ router.use(messages);
 router.use(sing);
 router.use(emotion);
 router.use(browser);
+router.use(agents);
 
 export default router;

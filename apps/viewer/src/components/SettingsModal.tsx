@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAtom, useSetAtom } from 'jotai';
 import { cn } from '@tomu/ui';
-import type { Provider, Person, Skill, Config } from '@tomu/core';
-import { settingsModalOpenAtom, settingsAtom, providersAtom, currentModelAtom } from '../store/atoms';
+import type { Provider, Person, Skill, Config, AgentProfile } from '@tomu/core';
+import { settingsModalOpenAtom, settingsAtom, providersAtom, currentModelAtom, agentsConfigAtom } from '../store/atoms';
 import { api } from '../lib/api';
 
 function downloadJson(data: unknown, filename: string) {
@@ -33,7 +33,7 @@ function importJsonFile(handler: (data: unknown) => Promise<void>) {
   input.click();
 }
 
-type Tab = 'general' | 'providers' | 'memory' | 'people' | 'skills' | 'integrations';
+type Tab = 'general' | 'providers' | 'memory' | 'people' | 'skills' | 'integrations' | 'agents';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'general', label: 'General' },
@@ -42,6 +42,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'people', label: 'People' },
   { id: 'skills', label: 'Skills' },
   { id: 'integrations', label: 'Integrations' },
+  { id: 'agents', label: 'Agents' },
 ];
 
 // ---------------------------------------------------------------------------
@@ -897,6 +898,650 @@ function IntegrationsTab() {
 }
 
 // ---------------------------------------------------------------------------
+// Agents Tab
+// ---------------------------------------------------------------------------
+
+const CATEGORY_LABELS: Record<AgentProfile['category'], string> = {
+  design: 'Design',
+  product: 'Product',
+  engineering: 'Engineering',
+  research: 'Research',
+  operations: 'Operations',
+  custom: 'Custom',
+};
+
+const EXECUTION_MODES: AgentProfile['executionMode'][] = [
+  'general-purpose', 'plan', 'coder', 'tomu-operator', 'explore', 'tomu-guide', 'statusline-setup',
+];
+
+const PRESET_COLORS = [
+  '#6366f1', '#ec4899', '#22c55e', '#f59e0b', '#14b8a6',
+  '#ef4444', '#3b82f6', '#8b5cf6', '#f97316', '#06b6d4',
+  '#84cc16', '#6B7280',
+];
+
+// Agent editor modal (create / edit)
+function AgentEditorModal({
+  profile,
+  allProfiles,
+  onSave,
+  onClose,
+}: {
+  profile: AgentProfile | null; // null = create new
+  allProfiles: AgentProfile[];
+  onSave: (profile: AgentProfile) => void;
+  onClose: () => void;
+}) {
+  const isNew = profile === null;
+  const [editorTab, setEditorTab] = useState<'general' | 'behavior'>('general');
+  const [saving, setSaving] = useState(false);
+
+  const defaultProfile: Omit<AgentProfile, 'builtIn'> = {
+    id: '',
+    name: '',
+    category: 'custom',
+    executionMode: 'general-purpose',
+    enabled: true,
+    color: '#6366f1',
+    summary: '',
+    focus: [],
+    delegatesTo: [],
+    prompt: '',
+  };
+
+  const [form, setForm] = useState<Omit<AgentProfile, 'builtIn'>>(
+    profile ? { ...profile } : defaultProfile,
+  );
+  const [isDirty, setIsDirty] = useState(false);
+  const [focusInput, setFocusInput] = useState('');
+
+  const update = <K extends keyof typeof form>(key: K, value: typeof form[K]) => {
+    setForm((prev) => ({ ...prev, [key]: value }));
+    setIsDirty(true);
+  };
+
+  const handleClose = () => {
+    if (isDirty && !window.confirm('Discard unsaved changes?')) return;
+    onClose();
+  };
+
+  const handleSave = async () => {
+    if (!form.name.trim()) return;
+    setSaving(true);
+    try {
+      let saved: AgentProfile;
+      if (isNew) {
+        saved = await api.createAgentProfile(form);
+      } else {
+        saved = await api.updateAgentProfile(profile!.id, form);
+      }
+      onSave(saved);
+    } catch {
+      // ignore
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleReset = async () => {
+    if (!profile || !window.confirm('Reset prompt to the original built-in content?')) return;
+    setSaving(true);
+    try {
+      const reset = await api.resetAgentProfile(profile.id);
+      setForm((prev) => ({ ...prev, prompt: reset.prompt }));
+      setIsDirty(false);
+    } catch {
+      // ignore
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const addFocusTag = () => {
+    const tag = focusInput.trim();
+    if (!tag || form.focus.includes(tag) || form.focus.length >= 5) return;
+    update('focus', [...form.focus, tag]);
+    setFocusInput('');
+  };
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center">
+      <div className="absolute inset-0 bg-black/60" onClick={handleClose} />
+      <div className="relative z-10 flex h-[85vh] w-[640px] max-w-[95vw] flex-col overflow-hidden rounded-xl border border-border bg-bg-primary shadow-2xl">
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-border px-5 py-4">
+          <h3 className="text-base font-semibold text-fg-primary">
+            {isNew ? 'Create Custom Agent' : `Edit Agent — ${profile!.name}`}
+          </h3>
+          <button className="rounded p-1 text-fg-muted hover:bg-bg-tertiary" onClick={handleClose}>
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M18 6L6 18M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        {/* Sub-tabs */}
+        <div className="flex border-b border-border px-5">
+          {(['general', 'behavior'] as const).map((t) => (
+            <button
+              key={t}
+              className={cn(
+                'px-3 py-2.5 text-sm capitalize transition-colors',
+                editorTab === t
+                  ? 'border-b-2 border-accent text-accent'
+                  : 'text-fg-muted hover:text-fg-secondary',
+              )}
+              onClick={() => setEditorTab(t)}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto px-5 py-4">
+          {editorTab === 'general' && (
+            <div className="flex flex-col gap-4">
+              {/* ID */}
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-medium text-fg-secondary">ID</label>
+                <input
+                  className={cn(
+                    'rounded-md border border-border bg-bg-tertiary px-3 py-1.5 text-sm text-fg-primary placeholder:text-fg-muted',
+                    !isNew && 'cursor-not-allowed opacity-60',
+                  )}
+                  placeholder="e.g. my-agent"
+                  value={form.id}
+                  onChange={(e) => isNew && update('id', e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
+                  readOnly={!isNew}
+                />
+                <span className="text-[10px] text-fg-muted">Lowercase letters, numbers, hyphens only</span>
+              </div>
+
+              {/* Name */}
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-medium text-fg-secondary">Name</label>
+                <input
+                  className="rounded-md border border-border bg-bg-tertiary px-3 py-1.5 text-sm text-fg-primary placeholder:text-fg-muted"
+                  placeholder="Display name"
+                  value={form.name}
+                  onChange={(e) => update('name', e.target.value)}
+                />
+              </div>
+
+              {/* Category */}
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-medium text-fg-secondary">Category</label>
+                <select
+                  className="rounded-md border border-border bg-bg-tertiary px-3 py-1.5 text-sm text-fg-primary"
+                  value={form.category}
+                  onChange={(e) => update('category', e.target.value as AgentProfile['category'])}
+                >
+                  {(Object.keys(CATEGORY_LABELS) as AgentProfile['category'][]).map((c) => (
+                    <option key={c} value={c}>{CATEGORY_LABELS[c]}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Color */}
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-medium text-fg-secondary">Color</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {PRESET_COLORS.map((c) => (
+                    <button
+                      key={c}
+                      className={cn(
+                        'h-6 w-6 rounded-full border-2 transition-transform hover:scale-110',
+                        form.color === c ? 'border-fg-primary' : 'border-transparent',
+                      )}
+                      style={{ backgroundColor: c }}
+                      onClick={() => update('color', c)}
+                    />
+                  ))}
+                  <input
+                    type="color"
+                    className="h-6 w-6 cursor-pointer rounded-full border-0 bg-transparent"
+                    value={form.color}
+                    onChange={(e) => update('color', e.target.value)}
+                  />
+                </div>
+              </div>
+
+              {/* Summary */}
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-medium text-fg-secondary">Summary</label>
+                <input
+                  className="rounded-md border border-border bg-bg-tertiary px-3 py-1.5 text-sm text-fg-primary placeholder:text-fg-muted"
+                  placeholder="Short description (max 100 chars)"
+                  maxLength={100}
+                  value={form.summary}
+                  onChange={(e) => update('summary', e.target.value)}
+                />
+              </div>
+
+              {/* Focus tags */}
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-medium text-fg-secondary">Focus Tags (max 5)</label>
+                <div className="flex flex-wrap gap-1 mb-1">
+                  {form.focus.map((tag) => (
+                    <span key={tag} className="flex items-center gap-1 rounded-full bg-bg-tertiary px-2 py-0.5 text-xs text-fg-secondary">
+                      {tag}
+                      <button className="text-fg-muted hover:text-red-400" onClick={() => update('focus', form.focus.filter((t) => t !== tag))}>×</button>
+                    </span>
+                  ))}
+                </div>
+                {form.focus.length < 5 && (
+                  <div className="flex gap-1">
+                    <input
+                      className="flex-1 rounded-md border border-border bg-bg-tertiary px-3 py-1 text-xs text-fg-primary placeholder:text-fg-muted"
+                      placeholder="Add tag..."
+                      value={focusInput}
+                      onChange={(e) => setFocusInput(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addFocusTag(); } }}
+                    />
+                    <button
+                      className="rounded-md border border-border px-2 py-1 text-xs text-fg-secondary hover:bg-bg-tertiary"
+                      onClick={addFocusTag}
+                    >
+                      Add
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Target Model */}
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-medium text-fg-secondary">Target Model</label>
+                <input
+                  className="rounded-md border border-border bg-bg-tertiary px-3 py-1.5 text-sm text-fg-primary placeholder:text-fg-muted"
+                  placeholder="Default (e.g. openai:gpt-4o)"
+                  value={form.model ?? ''}
+                  onChange={(e) => update('model', e.target.value || undefined)}
+                />
+              </div>
+            </div>
+          )}
+
+          {editorTab === 'behavior' && (
+            <div className="flex flex-col gap-4">
+              {/* Execution Mode */}
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-medium text-fg-secondary">Execution Mode</label>
+                <select
+                  className={cn(
+                    'rounded-md border border-border bg-bg-tertiary px-3 py-1.5 text-sm text-fg-primary',
+                    profile?.builtIn && 'cursor-not-allowed opacity-60',
+                  )}
+                  value={form.executionMode}
+                  onChange={(e) => !profile?.builtIn && update('executionMode', e.target.value as AgentProfile['executionMode'])}
+                  disabled={profile?.builtIn}
+                >
+                  {EXECUTION_MODES.map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Delegates To */}
+              <div className="flex flex-col gap-1">
+                <label className="text-xs font-medium text-fg-secondary">Delegates To</label>
+                <div className="flex flex-col gap-1">
+                  {allProfiles
+                    .filter((p) => p.id !== form.id)
+                    .map((p) => (
+                      <label key={p.id} className="flex items-center gap-2 text-sm text-fg-secondary">
+                        <input
+                          type="checkbox"
+                          checked={form.delegatesTo.includes(p.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              update('delegatesTo', [...form.delegatesTo, p.id]);
+                            } else {
+                              update('delegatesTo', form.delegatesTo.filter((id) => id !== p.id));
+                            }
+                          }}
+                          className="accent-accent"
+                        />
+                        <span
+                          className="h-2 w-2 rounded-full flex-shrink-0"
+                          style={{ backgroundColor: p.color }}
+                        />
+                        {p.name}
+                      </label>
+                    ))}
+                </div>
+              </div>
+
+              {/* System Prompt */}
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-medium text-fg-secondary">System Prompt</label>
+                  {profile?.builtIn && (
+                    <button
+                      className="rounded px-2 py-0.5 text-xs text-fg-muted hover:text-fg-secondary hover:bg-bg-tertiary"
+                      onClick={handleReset}
+                      disabled={saving}
+                    >
+                      Reset to default
+                    </button>
+                  )}
+                </div>
+                <textarea
+                  className="min-h-[240px] w-full rounded-md border border-border bg-bg-tertiary px-3 py-2 font-mono text-xs text-fg-primary leading-relaxed"
+                  value={form.prompt}
+                  onChange={(e) => update('prompt', e.target.value)}
+                  spellCheck={false}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-end gap-2 border-t border-border px-5 py-3">
+          <button
+            className="rounded-md border border-border px-3 py-1.5 text-sm text-fg-secondary hover:bg-bg-tertiary"
+            onClick={handleClose}
+          >
+            Cancel
+          </button>
+          <button
+            className={cn('rounded-md bg-accent px-4 py-1.5 text-sm text-white hover:bg-accent/80', saving && 'opacity-60 pointer-events-none')}
+            onClick={handleSave}
+            disabled={saving}
+          >
+            {saving ? 'Saving...' : 'Save'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Agent card
+function AgentCard({
+  profile,
+  allProfiles,
+  onEdit,
+  onToggle,
+  onDelete,
+}: {
+  profile: AgentProfile;
+  allProfiles: AgentProfile[];
+  onEdit: () => void;
+  onToggle: () => void;
+  onDelete: () => void;
+}) {
+  const delegates = profile.delegatesTo
+    .map((id) => allProfiles.find((p) => p.id === id))
+    .filter((p): p is AgentProfile => p != null);
+
+  return (
+    <div className="rounded-lg border border-border bg-bg-tertiary overflow-hidden">
+      <div className="flex items-start gap-3 p-4">
+        {/* Color accent */}
+        <div className="mt-0.5 h-full w-1 flex-shrink-0 self-stretch rounded-full" style={{ backgroundColor: profile.color, minHeight: '40px' }} />
+
+        <div className="flex-1 min-w-0">
+          {/* Name + badge */}
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-sm font-medium text-fg-primary">{profile.name}</span>
+            {profile.builtIn && (
+              <span className="rounded bg-bg-primary px-1.5 py-0.5 text-[10px] text-fg-muted">Built-in</span>
+            )}
+          </div>
+
+          {/* Summary */}
+          <p className="text-xs text-fg-muted line-clamp-2 mb-2">{profile.summary}</p>
+
+          {/* Focus tags */}
+          {profile.focus.length > 0 && (
+            <div className="flex flex-wrap gap-1 mb-2">
+              {profile.focus.map((tag) => (
+                <span key={tag} className="rounded-full bg-bg-primary px-2 py-0.5 text-[10px] text-fg-muted">
+                  {tag}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* Footer: delegates + actions */}
+          <div className="flex items-center justify-between">
+            {/* Delegate avatars */}
+            <div className="flex items-center gap-1">
+              {delegates.length > 0 && (
+                <>
+                  <span className="text-[10px] text-fg-muted mr-1">→</span>
+                  {delegates.map((d) => (
+                    <span
+                      key={d.id}
+                      title={d.name}
+                      className="flex h-5 w-5 items-center justify-center rounded-full text-[9px] font-bold text-white"
+                      style={{ backgroundColor: d.color }}
+                    >
+                      {d.name[0]}
+                    </span>
+                  ))}
+                </>
+              )}
+            </div>
+
+            {/* Actions */}
+            <div className="flex items-center gap-2">
+              {!profile.builtIn && (
+                <button
+                  className="rounded px-2 py-1 text-xs text-red-400 hover:bg-bg-primary"
+                  onClick={onDelete}
+                >
+                  Delete
+                </button>
+              )}
+              <button
+                className="rounded px-2 py-1 text-xs text-fg-secondary hover:bg-bg-primary"
+                onClick={onEdit}
+              >
+                Edit
+              </button>
+              {/* Enable toggle */}
+              <button
+                className={cn(
+                  'relative h-5 w-9 rounded-full transition-colors',
+                  profile.enabled ? 'bg-accent' : 'bg-fg-muted/30',
+                )}
+                onClick={onToggle}
+              >
+                <span
+                  className={cn(
+                    'absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white transition-transform',
+                    profile.enabled && 'translate-x-4',
+                  )}
+                />
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AgentsTab() {
+  const [agentsConfig, setAgentsConfig] = useAtom(agentsConfigAtom);
+  const [editingProfile, setEditingProfile] = useState<AgentProfile | null | undefined>(undefined); // undefined = closed, null = new
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    api.getAgentsConfig().then(setAgentsConfig).catch(() => {});
+  }, [setAgentsConfig]);
+
+  const profiles = agentsConfig?.profiles ?? [];
+
+  const updateGlobal = async (patch: { enabled?: boolean; allowSubagentDelegation?: boolean }) => {
+    setSaving(true);
+    try {
+      const updated = await api.updateAgentsGlobal(patch);
+      setAgentsConfig(updated);
+    } catch {
+      // ignore
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleToggleProfile = async (id: string) => {
+    const profile = profiles.find((p) => p.id === id);
+    if (!profile) return;
+    try {
+      const updated = await api.updateAgentProfile(id, { enabled: !profile.enabled });
+      setAgentsConfig((prev) =>
+        prev
+          ? { ...prev, profiles: prev.profiles.map((p) => (p.id === id ? updated : p)) }
+          : prev,
+      );
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleDeleteProfile = async (id: string) => {
+    if (!window.confirm('Delete this agent? This action cannot be undone.')) return;
+    try {
+      await api.deleteAgentProfile(id);
+      setAgentsConfig((prev) =>
+        prev ? { ...prev, profiles: prev.profiles.filter((p) => p.id !== id) } : prev,
+      );
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleSaveProfile = (saved: AgentProfile) => {
+    setAgentsConfig((prev) => {
+      if (!prev) return prev;
+      const exists = prev.profiles.some((p) => p.id === saved.id);
+      return {
+        ...prev,
+        profiles: exists
+          ? prev.profiles.map((p) => (p.id === saved.id ? saved : p))
+          : [...prev.profiles, saved],
+      };
+    });
+    setEditingProfile(undefined);
+  };
+
+  // Group profiles by category
+  const grouped = profiles.reduce<Record<string, AgentProfile[]>>((acc, p) => {
+    const key = p.category;
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(p);
+    return acc;
+  }, {});
+
+  const categoryOrder: AgentProfile['category'][] = [
+    'product', 'design', 'engineering', 'research', 'operations', 'custom',
+  ];
+
+  return (
+    <div className="flex flex-col gap-6">
+      {/* Header */}
+      <div className="flex items-start justify-between">
+        <div>
+          <h3 className="text-lg font-semibold text-fg-primary">Agents & Crew</h3>
+          <p className="mt-0.5 text-xs text-fg-muted">Configure your AI agent team</p>
+        </div>
+        <button
+          className="rounded-md border border-border px-3 py-1.5 text-sm text-fg-secondary hover:bg-bg-tertiary"
+          onClick={() => setEditingProfile(null)}
+        >
+          + Create Custom Agent
+        </button>
+      </div>
+
+      {/* Global toggles */}
+      <div className="flex flex-col gap-3 rounded-lg border border-border bg-bg-tertiary p-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium text-fg-primary">Enable Agent Crew</p>
+            <p className="text-xs text-fg-muted">Allow agents to be spawned for tasks</p>
+          </div>
+          <button
+            className={cn(
+              'relative h-6 w-11 rounded-full transition-colors',
+              agentsConfig?.enabled ? 'bg-accent' : 'bg-fg-muted/30',
+            )}
+            onClick={() => updateGlobal({ enabled: !agentsConfig?.enabled })}
+            disabled={saving}
+          >
+            <span
+              className={cn(
+                'absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform',
+                agentsConfig?.enabled && 'translate-x-5',
+              )}
+            />
+          </button>
+        </div>
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm font-medium text-fg-primary">Allow Autonomous Delegation</p>
+            <p className="text-xs text-fg-muted">Agents can delegate sub-tasks to other agents</p>
+          </div>
+          <button
+            className={cn(
+              'relative h-6 w-11 rounded-full transition-colors',
+              agentsConfig?.allowSubagentDelegation ? 'bg-accent' : 'bg-fg-muted/30',
+            )}
+            onClick={() => updateGlobal({ allowSubagentDelegation: !agentsConfig?.allowSubagentDelegation })}
+            disabled={saving}
+          >
+            <span
+              className={cn(
+                'absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform',
+                agentsConfig?.allowSubagentDelegation && 'translate-x-5',
+              )}
+            />
+          </button>
+        </div>
+      </div>
+
+      {/* Agent cards by category */}
+      {profiles.length === 0 && (
+        <p className="text-sm text-fg-muted">No agents configured yet.</p>
+      )}
+
+      {categoryOrder
+        .filter((cat) => grouped[cat]?.length)
+        .map((cat) => (
+          <div key={cat} className="flex flex-col gap-2">
+            <h4 className="text-xs font-semibold uppercase tracking-wider text-fg-muted">
+              {CATEGORY_LABELS[cat]}
+            </h4>
+            {grouped[cat].map((p) => (
+              <AgentCard
+                key={p.id}
+                profile={p}
+                allProfiles={profiles}
+                onEdit={() => setEditingProfile(p)}
+                onToggle={() => handleToggleProfile(p.id)}
+                onDelete={() => handleDeleteProfile(p.id)}
+              />
+            ))}
+          </div>
+        ))}
+
+      {/* Editor modal */}
+      {editingProfile !== undefined && (
+        <AgentEditorModal
+          profile={editingProfile}
+          allProfiles={profiles}
+          onSave={handleSaveProfile}
+          onClose={() => setEditingProfile(undefined)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Settings Modal
 // ---------------------------------------------------------------------------
 
@@ -912,6 +1557,7 @@ export function SettingsModal() {
       case 'people': return <PeopleTab />;
       case 'skills': return <SkillsTab />;
       case 'integrations': return <IntegrationsTab />;
+      case 'agents': return <AgentsTab />;
     }
   };
 

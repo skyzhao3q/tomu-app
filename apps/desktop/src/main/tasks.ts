@@ -8,6 +8,7 @@ import { getConfigDir, getConfig, sqlite } from "./db.js";
 import { createLLMProvider } from "./llm.js";
 import { agentTools, createTaskTools } from "./tools/index.js";
 import { loadAgentDefinition, getAgentDisplayName } from "./subagents.js";
+import { getAgentProfile } from "./agents.js";
 
 // ---------------------------------------------------------------------------
 // HandoffPacket — structured delegation payload
@@ -486,6 +487,29 @@ export function spawnTask(
     systemPrompt = lines.join("\n") + systemPrompt;
   }
 
+  // Inject DELEGATION AUTHORIZATION block when allowed
+  const config = getConfig() as Record<string, unknown>;
+  const allowDelegation = (config["agents_allow_delegation"] as boolean | undefined) ?? true;
+  if (allowDelegation) {
+    const profile = getAgentProfile(effectiveType);
+    if (profile?.delegatesTo.length) {
+      const authLines = profile.delegatesTo
+        .map((id) => getAgentProfile(id))
+        .filter((p): p is NonNullable<typeof p> => p != null && p.enabled)
+        .map((p) => `- ${p.id}: ${p.summary}`);
+      if (authLines.length) {
+        const delegationBlock = [
+          "",
+          "# DELEGATION AUTHORIZATION",
+          "You are authorized to delegate sub-tasks to the following agents:",
+          ...authLines,
+          "",
+        ].join("\n");
+        systemPrompt = delegationBlock + systemPrompt;
+      }
+    }
+  }
+
   // Build tool subset: merge base agent tools with context-aware task tools
   // createTaskTools injects missionId/runId so subagent Task calls inherit the mission
   const contextualTaskTools = createTaskTools({
@@ -501,6 +525,12 @@ export function spawnTask(
     if (toolName in allAvailableTools) {
       toolSubset[toolName] = allAvailableTools[toolName];
     }
+  }
+
+  // Remove Task/TaskOutput tools when delegation is globally disabled
+  if (!allowDelegation) {
+    delete toolSubset["Task"];
+    delete toolSubset["TaskOutput"];
   }
 
   updateRun(run.id, "running");

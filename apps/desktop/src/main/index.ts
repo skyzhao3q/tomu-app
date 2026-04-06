@@ -4,6 +4,7 @@ import "./db.js"; // Initialize database and config directory on startup
 import routes from "./routes/index.js";
 import { cleanupStaleMemories } from "./memory.js";
 import { resumeStaleRuns } from "./tasks.js";
+import { seedBuiltInAgents } from "./agents.js";
 
 const app = express();
 const port = Number(process.env.PORT) || 33001;
@@ -30,6 +31,9 @@ app.use((req, res, next) => {
 });
 
 app.use("/api", routes);
+
+// Seed built-in agent profiles on first boot
+seedBuiltInAgents();
 
 // Cleanup stale temporary memories on startup
 const removed = cleanupStaleMemories();

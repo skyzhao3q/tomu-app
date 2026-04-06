@@ -1,11 +1,13 @@
 import { atom } from 'jotai';
-import type { Thread, Provider, Config } from '@tomu/core';
+import type { Thread, Provider, Config, AgentsConfig } from '@tomu/core';
 import type { ChatMessage } from '../types';
 
 const defaultConfig: Config = {
   theme: 'dark',
   language: 'en',
   agent_max_iterations: 25,
+  agents_enabled: true,
+  agents_allow_delegation: true,
 };
 
 export const threadsAtom = atom<Thread[]>([]);
@@ -26,3 +28,4 @@ export const memoryPanelOpenAtom = atom<boolean>(false);
 export const settingsModalOpenAtom = atom<boolean>(false);
 export const searchModalOpenAtom = atom<boolean>(false);
 export const usageDashboardOpenAtom = atom<boolean>(false);
+export const agentsConfigAtom = atom<AgentsConfig | null>(null);

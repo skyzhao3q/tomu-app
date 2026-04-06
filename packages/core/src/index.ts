@@ -7,6 +7,9 @@ export {
   pluginSettings,
   mcpServers,
   mcpOauthTokens,
+  agentMissions,
+  agentRuns,
+  agentHandoffs,
 } from "./db/schema.js";
 
 // Zod validation schemas
@@ -25,6 +28,12 @@ export {
   SubAgentSchema,
   ConfigSchema,
   WorkspaceSchema,
+  HandoffPacketSchema,
+  AgentMissionSchema,
+  AgentRunSchema,
+  AgentHandoffSchema,
+  AgentProfileSchema,
+  AgentsConfigSchema,
 } from "./schemas/index.js";
 
 // Inferred TypeScript types
@@ -43,4 +52,10 @@ export type {
   SubAgent,
   Config,
   Workspace,
+  HandoffPacket,
+  AgentMission,
+  AgentRun,
+  AgentHandoff,
+  AgentProfile,
+  AgentsConfig,
 } from "./types.js";
