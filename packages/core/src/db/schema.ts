@@ -120,6 +120,8 @@ export const agentRuns = sqliteTable("agent_runs", {
     .default("queued"),
   input_summary: text("input_summary").notNull(),
   output_summary: text("output_summary"),
+  /** JSON-serialised ModelMessage[] for resume-on-restart */
+  messages_json: text("messages_json"),
   created_at: text("created_at").notNull(),
   updated_at: text("updated_at").notNull(),
 });

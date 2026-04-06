@@ -1,12 +1,12 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
-import { generateText, stepCountIs } from "ai";
+import { generateText, stepCountIs, type ModelMessage } from "ai";
 import type { Provider } from "@tomu/core";
 import { decrypt } from "./crypto.js";
 import { getConfigDir, getConfig, sqlite } from "./db.js";
 import { createLLMProvider } from "./llm.js";
-import { agentTools } from "./tools/index.js";
+import { agentTools, createTaskTools } from "./tools/index.js";
 import { loadAgentDefinition, getAgentDisplayName } from "./subagents.js";
 
 // ---------------------------------------------------------------------------
@@ -44,6 +44,7 @@ export interface AgentRun {
   status: "queued" | "running" | "completed" | "failed";
   input_summary: string;
   output_summary: string | null;
+  messages_json: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -56,13 +57,13 @@ export interface AgentHandoff {
   to_agent_name: string;
   to_run_id: string | null;
   status: "created" | "accepted" | "completed" | "failed";
-  packet: string; // JSON
+  packet: string; // JSON-serialised HandoffPacket
   result_summary: string | null;
   created_at: string;
   updated_at: string;
 }
 
-// Legacy Task interface kept for API compatibility
+// Legacy Task interface — kept for REST API and TaskOutput tool compatibility
 export interface Task {
   id: string;
   type: string;
@@ -72,7 +73,6 @@ export interface Task {
   error?: string;
   startedAt: string;
   completedAt?: string;
-  // Extended fields
   mission_id?: string;
   run_id?: string;
   agent_id?: string;
@@ -137,12 +137,28 @@ export function createMission(
       `INSERT INTO agent_missions (id, thread_id, root_message_id, title, status, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run(mission.id, mission.thread_id, mission.root_message_id, mission.title, mission.status, mission.created_at, mission.updated_at);
+    .run(
+      mission.id,
+      mission.thread_id,
+      mission.root_message_id,
+      mission.title,
+      mission.status,
+      mission.created_at,
+      mission.updated_at,
+    );
   return mission;
 }
 
 export function getMission(id: string): AgentMission | undefined {
-  return sqlite.prepare("SELECT * FROM agent_missions WHERE id = ?").get(id) as AgentMission | undefined;
+  return sqlite
+    .prepare("SELECT * FROM agent_missions WHERE id = ?")
+    .get(id) as AgentMission | undefined;
+}
+
+export function listMissions(): AgentMission[] {
+  return sqlite
+    .prepare("SELECT * FROM agent_missions ORDER BY created_at DESC")
+    .all() as AgentMission[];
 }
 
 export function getMissionsByThread(threadId: string): AgentMission[] {
@@ -178,15 +194,28 @@ function createRun(
     status: "queued",
     input_summary: inputSummary,
     output_summary: null,
+    messages_json: null,
     created_at: now,
     updated_at: now,
   };
   sqlite
     .prepare(
-      `INSERT INTO agent_runs (id, mission_id, parent_run_id, agent_id, agent_name, status, input_summary, output_summary, created_at, updated_at)
+      `INSERT INTO agent_runs
+         (id, mission_id, parent_run_id, agent_id, agent_name, status, input_summary, output_summary, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run(run.id, run.mission_id, run.parent_run_id, run.agent_id, run.agent_name, run.status, run.input_summary, run.output_summary, run.created_at, run.updated_at);
+    .run(
+      run.id,
+      run.mission_id,
+      run.parent_run_id,
+      run.agent_id,
+      run.agent_name,
+      run.status,
+      run.input_summary,
+      run.output_summary,
+      run.created_at,
+      run.updated_at,
+    );
   return run;
 }
 
@@ -235,10 +264,23 @@ function createHandoff(
   };
   sqlite
     .prepare(
-      `INSERT INTO agent_handoffs (id, mission_id, from_run_id, to_agent_id, to_agent_name, to_run_id, status, packet, result_summary, created_at, updated_at)
+      `INSERT INTO agent_handoffs
+         (id, mission_id, from_run_id, to_agent_id, to_agent_name, to_run_id, status, packet, result_summary, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run(handoff.id, handoff.mission_id, handoff.from_run_id, handoff.to_agent_id, handoff.to_agent_name, handoff.to_run_id, handoff.status, handoff.packet, handoff.result_summary, handoff.created_at, handoff.updated_at);
+    .run(
+      handoff.id,
+      handoff.mission_id,
+      handoff.from_run_id,
+      handoff.to_agent_id,
+      handoff.to_agent_name,
+      handoff.to_run_id,
+      handoff.status,
+      handoff.packet,
+      handoff.result_summary,
+      handoff.created_at,
+      handoff.updated_at,
+    );
   return handoff;
 }
 
@@ -262,53 +304,121 @@ export function getHandoffsByMission(missionId: string): AgentHandoff[] {
 }
 
 // ---------------------------------------------------------------------------
-// Legacy in-memory task map (for API compatibility during transition)
-// Tasks are now also persisted to DB, but we keep this for fast lookups
+// In-memory task map — current session fast-access (full untruncated results)
 // ---------------------------------------------------------------------------
 
 const tasks = new Map<string, Task>();
 
 // ---------------------------------------------------------------------------
-// Core spawn logic
+// executeRun — core AI generation loop with per-step checkpointing
+// ---------------------------------------------------------------------------
+
+async function executeRun(
+  run: AgentRun,
+  startingMessages: ModelMessage[],
+  opts: {
+    systemPrompt: string;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    toolSubset: Record<string, any>;
+    missionId: string;
+    handoffId?: string;
+  },
+): Promise<void> {
+  // Register in-memory task if not already present (e.g. resumed from DB)
+  if (!tasks.has(run.id)) {
+    tasks.set(run.id, {
+      id: run.id,
+      type: run.agent_id,
+      status: "running",
+      prompt: run.input_summary,
+      startedAt: run.created_at,
+      mission_id: run.mission_id,
+      run_id: run.id,
+      agent_id: run.agent_id,
+      agent_name: run.agent_name,
+    });
+  }
+  const task = tasks.get(run.id)!;
+
+  const accumulated: ModelMessage[] = [...startingMessages];
+
+  try {
+    const { provider, apiKey, modelId } = resolveProvider();
+    const llm = createLLMProvider(provider, apiKey);
+
+    const { text } = await generateText({
+      model: llm(modelId),
+      system: opts.systemPrompt,
+      messages: startingMessages,
+      tools: opts.toolSubset,
+      stopWhen: stepCountIs(20),
+      onStepFinish({ response }) {
+        accumulated.push(...response.messages);
+        sqlite
+          .prepare(
+            "UPDATE agent_runs SET messages_json = ?, updated_at = ? WHERE id = ?",
+          )
+          .run(JSON.stringify(accumulated), new Date().toISOString(), run.id);
+      },
+    });
+
+    task.status = "completed";
+    task.result = text;
+    task.completedAt = new Date().toISOString();
+
+    updateRun(run.id, "completed", text.slice(0, 1000));
+    if (opts.handoffId) updateHandoff(opts.handoffId, run.id, "completed", text.slice(0, 500));
+    checkMissionCompletion(opts.missionId);
+  } catch (e) {
+    const errMsg = e instanceof Error ? e.message : String(e);
+    task.status = "failed";
+    task.error = errMsg;
+    task.completedAt = new Date().toISOString();
+
+    updateRun(run.id, "failed", errMsg.slice(0, 500));
+    if (opts.handoffId) updateHandoff(opts.handoffId, run.id, "failed", errMsg.slice(0, 500));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// SpawnOptions
 // ---------------------------------------------------------------------------
 
 export interface SpawnOptions {
-  /** Specialist agent ID (e.g. "product-manager", "developer"). Falls back to type. */
+  /** Specialist agent ID (e.g. "product-manager", "developer"). Takes precedence over type. */
   agent_id?: string;
-  /** Legacy subagent type (e.g. "coder", "plan"). Used when agent_id not given. */
+  /** Legacy subagent type (e.g. "coder", "plan"). Used when agent_id is absent. */
   type?: string;
   prompt: string;
-  /** Mission to attach this run to. If absent, a new standalone mission is created. */
+  /** Mission to attach this run to. Auto-creates a new standalone mission if absent. */
   mission_id?: string;
-  /** Run ID of the parent that is delegating to this agent */
+  /** Run ID of the parent agent delegating to this one. */
   parent_run_id?: string;
-  /** Handoff packet from the delegating agent */
+  /** Structured handoff packet from the delegating agent. */
   handoff?: HandoffPacket;
-  /** Thread context for mission creation */
+  /** Thread context — stored on auto-created mission. */
   thread_id?: string;
-  /** Root message ID for mission creation */
+  /** Root message ID for mission creation. */
   root_message_id?: string;
 }
 
-export function spawnTask(typeOrAgentId: string, prompt: string): string;
+// ---------------------------------------------------------------------------
+// spawnTask — overloaded for legacy (type, prompt) and new (SpawnOptions) call styles
+// ---------------------------------------------------------------------------
+
+export function spawnTask(type: string, prompt: string): string;
 export function spawnTask(options: SpawnOptions): string;
 export function spawnTask(
-  typeOrOptionsOrAgentId: string | SpawnOptions,
+  typeOrOptions: string | SpawnOptions,
   promptArg?: string,
 ): string {
-  // Normalize arguments — support both legacy (type, prompt) and new options object
-  let options: SpawnOptions;
-  if (typeof typeOrOptionsOrAgentId === "string") {
-    options = { type: typeOrOptionsOrAgentId, prompt: promptArg! };
-  } else {
-    options = typeOrOptionsOrAgentId;
-  }
+  const options: SpawnOptions =
+    typeof typeOrOptions === "string"
+      ? { type: typeOrOptions, prompt: promptArg! }
+      : typeOrOptions;
 
-  // Resolve the effective agent type for loading the definition
   const effectiveType = options.agent_id ?? options.type ?? "general-purpose";
   const definition = loadAgentDefinition(effectiveType);
-  const { provider, apiKey, modelId } = resolveProvider();
-
   const agentName = getAgentDisplayName(effectiveType);
 
   // Ensure a mission exists
@@ -320,7 +430,7 @@ export function spawnTask(
     missionId = mission.id;
   }
 
-  // Create the run record
+  // Create the DB run record
   const run = createRun(
     missionId,
     effectiveType,
@@ -329,7 +439,7 @@ export function spawnTask(
     options.parent_run_id,
   );
 
-  // Create handoff record if this was a delegation
+  // Record handoff if this was a structured delegation
   let handoffId: string | undefined;
   if (options.handoff && options.parent_run_id) {
     const handoff = createHandoff(
@@ -343,10 +453,9 @@ export function spawnTask(
     handoffId = handoff.id;
   }
 
-  // Build legacy Task record for API compatibility
-  const id = run.id;
+  // Build legacy Task for in-memory fast access
   const task: Task = {
-    id,
+    id: run.id,
     type: effectiveType,
     status: "running",
     prompt: options.prompt,
@@ -357,104 +466,174 @@ export function spawnTask(
     agent_name: agentName,
     handoff: options.handoff,
   };
-  tasks.set(id, task);
+  tasks.set(run.id, task);
 
-  // Build system prompt — inject handoff packet if present
+  // Build system prompt — inject handoff block at the top if present
   let systemPrompt = definition.systemPrompt;
   if (options.handoff) {
-    const handoffBlock = [
+    const lines = [
       "",
       "---",
       "## HANDOFF CONTEXT",
       `**Goal:** ${options.handoff.goal}`,
       `**Deliverable:** ${options.handoff.deliverable}`,
       `**Constraints:** ${options.handoff.constraints.join("; ")}`,
-      options.handoff.context?.length
-        ? `**Context:** ${options.handoff.context.join("; ")}`
-        : null,
-      `**Write-back format:** ${options.handoff.writeBack}`,
-      "---",
-      "",
-    ]
-      .filter(Boolean)
-      .join("\n");
-    systemPrompt = handoffBlock + systemPrompt;
+    ];
+    if (options.handoff.context?.length) {
+      lines.push(`**Context:** ${options.handoff.context.join("; ")}`);
+    }
+    lines.push(`**Write-back format:** ${options.handoff.writeBack}`, "---", "");
+    systemPrompt = lines.join("\n") + systemPrompt;
   }
 
-  // Build tool subset
-  const toolSubset: Record<string, (typeof agentTools)[keyof typeof agentTools]> = {};
+  // Build tool subset: merge base agent tools with context-aware task tools
+  // createTaskTools injects missionId/runId so subagent Task calls inherit the mission
+  const contextualTaskTools = createTaskTools({
+    missionId,
+    runId: run.id,
+    threadId: options.thread_id,
+  });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const allAvailableTools: Record<string, any> = { ...agentTools, ...contextualTaskTools };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const toolSubset: Record<string, any> = {};
   for (const toolName of definition.allowedTools) {
-    if (toolName in agentTools) {
-      toolSubset[toolName] = agentTools[toolName as keyof typeof agentTools];
+    if (toolName in allAvailableTools) {
+      toolSubset[toolName] = allAvailableTools[toolName];
     }
   }
 
-  const llm = createLLMProvider(provider, apiKey);
-
-  // Mark run as running
   updateRun(run.id, "running");
 
-  // Fire-and-forget the background generation
-  (async () => {
-    try {
-      const { text } = await generateText({
-        model: llm(modelId),
-        system: systemPrompt,
-        messages: [{ role: "user", content: options.prompt }],
-        tools: toolSubset,
-        stopWhen: stepCountIs(20),
-      });
+  // Fire-and-forget via executeRun (checkpoints messages_json on each step)
+  void executeRun(run, [{ role: "user", content: options.prompt }], {
+    systemPrompt,
+    toolSubset,
+    missionId: missionId!,
+    handoffId,
+  });
 
-      task.status = "completed";
-      task.result = text;
-      task.completedAt = new Date().toISOString();
-
-      updateRun(run.id, "completed", text.slice(0, 1000));
-
-      if (handoffId) {
-        updateHandoff(handoffId, run.id, "completed", text.slice(0, 500));
-      }
-
-      // Check if all runs in the mission are done
-      checkMissionCompletion(missionId!);
-    } catch (e) {
-      const errMsg = e instanceof Error ? e.message : String(e);
-      task.status = "failed";
-      task.error = errMsg;
-      task.completedAt = new Date().toISOString();
-
-      updateRun(run.id, "failed", errMsg.slice(0, 500));
-
-      if (handoffId) {
-        updateHandoff(handoffId, run.id, "failed", errMsg.slice(0, 500));
-      }
-    }
-  })();
-
-  return id;
+  return run.id;
 }
 
 function checkMissionCompletion(missionId: string): void {
   const runs = getRunsByMission(missionId);
   const allDone = runs.every((r) => r.status === "completed" || r.status === "failed");
-  const anyFailed = runs.some((r) => r.status === "failed");
   if (allDone) {
+    const anyFailed = runs.some((r) => r.status === "failed");
     updateMissionStatus(missionId, anyFailed ? "failed" : "completed");
   }
 }
 
 // ---------------------------------------------------------------------------
-// Public task accessors (legacy API)
+// Map DB AgentRun to legacy Task shape
+// ---------------------------------------------------------------------------
+
+function runToTask(run: AgentRun): Task {
+  const isDone = run.status === "completed" || run.status === "failed";
+  return {
+    id: run.id,
+    type: run.agent_id,
+    status:
+      run.status === "completed"
+        ? "completed"
+        : run.status === "failed"
+          ? "failed"
+          : "running",
+    prompt: run.input_summary,
+    result: run.status === "completed" ? (run.output_summary ?? undefined) : undefined,
+    error: run.status === "failed" ? (run.output_summary ?? undefined) : undefined,
+    startedAt: run.created_at,
+    completedAt: isDone ? run.updated_at : undefined,
+    mission_id: run.mission_id,
+    run_id: run.id,
+    agent_id: run.agent_id,
+    agent_name: run.agent_name,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Public task accessors
 // ---------------------------------------------------------------------------
 
 export function getTask(id: string): Task | undefined {
-  return tasks.get(id);
+  // In-memory takes precedence: has full untruncated result for current session
+  const memTask = tasks.get(id);
+  if (memTask) return memTask;
+  const run = sqlite
+    .prepare("SELECT * FROM agent_runs WHERE id = ?")
+    .get(id) as AgentRun | undefined;
+  return run ? runToTask(run) : undefined;
 }
 
 export function listTasks(): Task[] {
-  return Array.from(tasks.values());
+  const dbRuns = sqlite
+    .prepare("SELECT * FROM agent_runs ORDER BY created_at DESC")
+    .all() as AgentRun[];
+  // Prefer in-memory data for current session (untruncated results)
+  return dbRuns.map((run) => tasks.get(run.id) ?? runToTask(run));
 }
 
 export function deleteTask(id: string): boolean {
-  return tasks.delete(id);
+  tasks.delete(id);
+  const result = sqlite.prepare("DELETE FROM agent_runs WHERE id = ?").run(id);
+  return result.changes > 0;
+}
+
+// ---------------------------------------------------------------------------
+// resumeStaleRuns — called at startup to re-execute interrupted runs
+// ---------------------------------------------------------------------------
+
+export function resumeStaleRuns(): number {
+  const staleRuns = sqlite
+    .prepare(
+      `SELECT ar.*, am.thread_id
+       FROM agent_runs ar
+       JOIN agent_missions am ON ar.mission_id = am.id
+       WHERE ar.status = 'running'`,
+    )
+    .all() as (AgentRun & { thread_id: string })[];
+
+  let resumed = 0;
+  for (const run of staleRuns) {
+    // Skip if already active in this process (shouldn't happen at startup, but guard anyway)
+    if (tasks.has(run.id)) continue;
+
+    if (!run.messages_json) {
+      updateRun(run.id, "failed", "Interrupted before first checkpoint — cannot resume");
+      continue;
+    }
+
+    try {
+      const definition = loadAgentDefinition(run.agent_id);
+      const contextualTaskTools = createTaskTools({
+        missionId: run.mission_id,
+        runId: run.id,
+        threadId: run.thread_id,
+      });
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const allAvailableTools: Record<string, any> = { ...agentTools, ...contextualTaskTools };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const toolSubset: Record<string, any> = {};
+      for (const toolName of definition.allowedTools) {
+        if (toolName in allAvailableTools) toolSubset[toolName] = allAvailableTools[toolName];
+      }
+
+      const messages = JSON.parse(run.messages_json) as ModelMessage[];
+      console.log(
+        `[resume] Resuming run ${run.id} (${run.agent_name}) from ${messages.length} messages`,
+      );
+      resumed++;
+
+      void executeRun(run, messages, {
+        systemPrompt: definition.systemPrompt,
+        toolSubset,
+        missionId: run.mission_id,
+      });
+    } catch (e) {
+      const errMsg = e instanceof Error ? e.message : String(e);
+      updateRun(run.id, "failed", `Resume failed: ${errMsg.slice(0, 500)}`);
+    }
+  }
+  return resumed;
 }

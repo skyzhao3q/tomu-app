@@ -230,6 +230,16 @@ sqlite.exec(`
   );
 `);
 
+// Migration: add messages_json to agent_runs (for resume-on-restart)
+try {
+  const cols = sqlite.pragma("table_info(agent_runs)") as Array<{ name: string }>;
+  if (cols.length > 0 && !cols.some((c) => c.name === "messages_json")) {
+    sqlite.exec("ALTER TABLE agent_runs ADD COLUMN messages_json TEXT");
+  }
+} catch {
+  // Table doesn't exist yet — nothing to migrate
+}
+
 // Migrate messages_fts if it is missing the message_id column (older schema)
 try {
   const cols = sqlite.pragma("table_info(messages_fts)") as Array<{ name: string }>;
