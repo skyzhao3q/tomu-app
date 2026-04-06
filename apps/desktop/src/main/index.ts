@@ -3,6 +3,7 @@ import cors from "cors";
 import "./db.js"; // Initialize database and config directory on startup
 import routes from "./routes/index.js";
 import { cleanupStaleMemories } from "./memory.js";
+import { resumeStaleRuns } from "./tasks.js";
 
 const app = express();
 const port = Number(process.env.PORT) || 33001;
@@ -33,6 +34,12 @@ app.use("/api", routes);
 const removed = cleanupStaleMemories();
 if (removed > 0) {
   console.log(`Cleaned up ${removed} stale temporary memories`);
+}
+
+// Resume any agent runs that were interrupted before the last shutdown
+const resumed = resumeStaleRuns();
+if (resumed > 0) {
+  console.log(`[startup] Resumed ${resumed} interrupted agent run(s)`);
 }
 
 app.listen(port, () => {

@@ -172,6 +172,50 @@ sqlite.exec(`
   );
 `);
 
+// Agent mission orchestration tables
+sqlite.exec(`
+  CREATE TABLE IF NOT EXISTS agent_missions (
+    id TEXT PRIMARY KEY,
+    thread_id TEXT NOT NULL,
+    root_message_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'completed', 'failed', 'paused')),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS agent_runs (
+    id TEXT PRIMARY KEY,
+    mission_id TEXT NOT NULL REFERENCES agent_missions(id) ON DELETE CASCADE,
+    parent_run_id TEXT,
+    agent_id TEXT NOT NULL,
+    agent_name TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'queued' CHECK(status IN ('queued', 'running', 'completed', 'failed')),
+    input_summary TEXT NOT NULL,
+    output_summary TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS agent_handoffs (
+    id TEXT PRIMARY KEY,
+    mission_id TEXT NOT NULL REFERENCES agent_missions(id) ON DELETE CASCADE,
+    from_run_id TEXT,
+    to_agent_id TEXT NOT NULL,
+    to_agent_name TEXT NOT NULL,
+    to_run_id TEXT,
+    status TEXT NOT NULL DEFAULT 'created' CHECK(status IN ('created', 'accepted', 'completed', 'failed')),
+    packet TEXT NOT NULL,
+    result_summary TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_agent_missions_thread ON agent_missions(thread_id);
+  CREATE INDEX IF NOT EXISTS idx_agent_runs_mission ON agent_runs(mission_id);
+  CREATE INDEX IF NOT EXISTS idx_agent_handoffs_mission ON agent_handoffs(mission_id);
+`);
+
 // Memory vectors table (embeddings stored as JSON text)
 sqlite.exec(`
   CREATE TABLE IF NOT EXISTS memory_vectors (
@@ -185,6 +229,16 @@ sqlite.exec(`
     updated_at TEXT NOT NULL
   );
 `);
+
+// Migration: add messages_json to agent_runs (for resume-on-restart)
+try {
+  const cols = sqlite.pragma("table_info(agent_runs)") as Array<{ name: string }>;
+  if (cols.length > 0 && !cols.some((c) => c.name === "messages_json")) {
+    sqlite.exec("ALTER TABLE agent_runs ADD COLUMN messages_json TEXT");
+  }
+} catch {
+  // Table doesn't exist yet — nothing to migrate
+}
 
 // Migrate messages_fts if it is missing the message_id column (older schema)
 try {
