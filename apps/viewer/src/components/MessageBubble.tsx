@@ -131,6 +131,8 @@ export function MessageBubble({ message, isLast, onRetry }: MessageBubbleProps) 
   const agentCalls = allCalls.filter((tc) => tc.name === 'Task');
   const widgetCalls = allCalls.filter((tc) => WIDGET_TOOLS.includes(tc.name));
   const inlineCalls = allCalls.filter((tc) => tc.name !== 'Task' && !WIDGET_TOOLS.includes(tc.name));
+  const toolOnlyCalls = inlineCalls.filter((tc) => tc.type !== 'skill');
+  const skillOnlyCalls = inlineCalls.filter((tc) => tc.type === 'skill');
 
   // Show PreprocessIndicator when assistant message is empty (waiting for first token)
   const showPreprocess =
@@ -145,7 +147,8 @@ export function MessageBubble({ message, isLast, onRetry }: MessageBubbleProps) 
   const processingBadges =
     inlineCalls.length > 0 || agentCalls.length > 0 ? (
       <div className="flex flex-wrap items-center gap-1.5">
-        {inlineCalls.length > 0 && <ToolSkillSummaryBadge toolCalls={inlineCalls} />}
+        {toolOnlyCalls.length > 0 && <ToolSkillSummaryBadge toolCalls={toolOnlyCalls} />}
+        {skillOnlyCalls.length > 0 && <ToolSkillSummaryBadge toolCalls={skillOnlyCalls} />}
         {agentCalls.map((tc) => (
           <AgentCallBadge key={tc.id} {...tc} />
         ))}
