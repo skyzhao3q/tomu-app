@@ -4,33 +4,55 @@ import {
   getTask,
   listTasks,
   deleteTask,
+  getMission,
+  listMissions,
+  getMissionsByThread,
+  getRunsByMission,
+  getHandoffsByMission,
 } from "../tasks.js";
 import { listAgentTypes } from "../subagents.js";
+import type { HandoffPacket } from "../tasks.js";
 
 const router: RouterType = Router();
 
+// ---------------------------------------------------------------------------
+// Tasks (sub-agent spawning API)
+// ---------------------------------------------------------------------------
+
 // Spawn a new sub-agent task
 router.post("/tasks", (req, res) => {
-  const { subagent_type, type: rawType, prompt } = req.body as {
+  const {
+    subagent_type,
+    agent_id,
+    type: rawType,
+    prompt,
+    handoff,
+    mission_id,
+    parent_run_id,
+  } = req.body as {
     subagent_type?: string;
+    agent_id?: string;
     type?: string;
     prompt?: string;
+    handoff?: HandoffPacket;
+    mission_id?: string;
+    parent_run_id?: string;
   };
-  const type = subagent_type || rawType;
+  const effectiveType = agent_id ?? subagent_type ?? rawType;
 
-  if (!type || !prompt) {
-    res.status(400).json({ error: "type and prompt are required" });
+  if (!effectiveType || !prompt) {
+    res.status(400).json({ error: "agent_id (or type) and prompt are required" });
     return;
   }
 
   const validTypes = listAgentTypes();
-  if (!validTypes.includes(type)) {
+  if (!validTypes.includes(effectiveType)) {
     res.status(400).json({ error: `Invalid agent type. Valid types: ${validTypes.join(", ")}` });
     return;
   }
 
   try {
-    const id = spawnTask(type, prompt);
+    const id = spawnTask({ agent_id: effectiveType, prompt, handoff, mission_id, parent_run_id });
     res.json({ id, status: "running" });
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to spawn task";
@@ -38,7 +60,7 @@ router.post("/tasks", (req, res) => {
   }
 });
 
-// List all tasks
+// List all tasks (from DB — persists across restarts)
 router.get("/tasks", (_req, res) => {
   res.json(listTasks());
 });
@@ -61,6 +83,42 @@ router.delete("/tasks/:id", (req, res) => {
     return;
   }
   res.json({ ok: true });
+});
+
+// ---------------------------------------------------------------------------
+// Missions
+// ---------------------------------------------------------------------------
+
+// List all missions, optionally filtered by thread_id
+router.get("/missions", (req, res) => {
+  const { thread_id } = req.query as { thread_id?: string };
+  if (thread_id) {
+    res.json(getMissionsByThread(thread_id));
+  } else {
+    res.json(listMissions());
+  }
+});
+
+// Get a specific mission with its runs and handoffs
+router.get("/missions/:id", (req, res) => {
+  const mission = getMission(req.params.id);
+  if (!mission) {
+    res.status(404).json({ error: "Mission not found" });
+    return;
+  }
+  const runs = getRunsByMission(mission.id);
+  const handoffs = getHandoffsByMission(mission.id);
+  res.json({ mission, runs, handoffs });
+});
+
+// List runs for a mission
+router.get("/missions/:id/runs", (req, res) => {
+  const mission = getMission(req.params.id);
+  if (!mission) {
+    res.status(404).json({ error: "Mission not found" });
+    return;
+  }
+  res.json(getRunsByMission(mission.id));
 });
 
 export default router;

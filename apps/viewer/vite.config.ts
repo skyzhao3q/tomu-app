@@ -10,9 +10,11 @@ export default defineConfig({
     },
   },
   server: {
+    port: parseInt(process.env.VITE_PORT ?? "55173"),
+    strictPort: true,
     proxy: {
       "/api": {
-        target: "http://localhost:33001",
+        target: `http://localhost:${process.env.EXPRESS_PORT ?? "33001"}`,
         changeOrigin: true,
       },
     },
