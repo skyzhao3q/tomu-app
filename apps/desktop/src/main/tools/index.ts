@@ -10,7 +10,7 @@ import { executeWidget } from "./widget.js";
 import { executePieChart, executeBarChart } from "./charts.js";
 import { spawnTask, getTask } from "../tasks.js";
 import { listAgentTypes } from "../subagents.js";
-import type { HandoffPacket } from "../tasks.js";
+import type { HandoffPacket, SpawnOptions } from "../tasks.js";
 
 export const agentTools = {
   Bash: tool({
@@ -155,10 +155,31 @@ export const agentTools = {
   }),
 };
 
+// ---------------------------------------------------------------------------
+// Shared Task tool schema and description
+// ---------------------------------------------------------------------------
+
+const TASK_DESCRIPTION = [
+  "Spawn a background specialist agent to work on a task autonomously.",
+  "Returns a task ID you can use with TaskOutput to check progress.",
+  "",
+  "SPECIALIST AGENTS (use agent_id):",
+  "  product-manager — requirements, roadmapping, scope control",
+  "  designer        — UX/UI specs, component design, interaction states",
+  "  developer       — implementation, bug fixing, code verification",
+  "  researcher      — codebase recon, external research, decision support",
+  "  operator        — environment setup, configuration, dependency management",
+  "",
+  "GENERAL AGENTS (use type):",
+  "  coder, explore, plan, general-purpose, tomu-operator",
+].join("\n");
+
 const handoffSchema = z
   .object({
     goal: z.string().describe("Why this agent is being called — the ultimate objective"),
-    deliverable: z.string().describe("The exact output this agent must return"),
+    deliverable: z
+      .string()
+      .describe("The exact output this agent must return"),
     constraints: z
       .array(z.string())
       .describe("Hard constraints: deadlines, tech restrictions, absolute rules"),
@@ -172,73 +193,98 @@ const handoffSchema = z
   })
   .optional();
 
+const taskInputSchema = z.object({
+  agent_id: z
+    .string()
+    .optional()
+    .describe(
+      "Specialist agent ID: product-manager, designer, developer, researcher, operator",
+    ),
+  type: z
+    .string()
+    .optional()
+    .describe(
+      "Legacy agent type: coder, explore, plan, general-purpose (used when agent_id is not provided)",
+    ),
+  prompt: z.string().describe("Task description / instructions for the agent"),
+  handoff: handoffSchema.describe(
+    "Structured handoff packet for specialist delegation. Strongly recommended when using agent_id.",
+  ),
+  mission_id: z
+    .string()
+    .optional()
+    .describe(
+      "Mission ID to attach this run to (for chaining agents within one mission)",
+    ),
+  parent_run_id: z
+    .string()
+    .optional()
+    .describe("Run ID of the delegating agent (enables handoff tracking)"),
+});
+
+function makeTaskExecute(context: {
+  missionId?: string;
+  runId?: string;
+  threadId?: string;
+}) {
+  return async ({
+    agent_id,
+    type,
+    prompt,
+    handoff,
+    mission_id,
+    parent_run_id,
+  }: {
+    agent_id?: string;
+    type?: string;
+    prompt: string;
+    handoff?: {
+      goal: string;
+      deliverable: string;
+      constraints: string[];
+      context?: string[];
+      writeBack: "summary" | "artifact" | "decision" | "patch";
+    };
+    mission_id?: string;
+    parent_run_id?: string;
+  }) => {
+    const effectiveType = agent_id ?? type;
+    if (!effectiveType) {
+      return "Error: Either agent_id or type must be provided";
+    }
+
+    const validTypes = listAgentTypes();
+    if (!validTypes.includes(effectiveType)) {
+      return `Error: Invalid agent "${effectiveType}". Valid options: ${validTypes.join(", ")}`;
+    }
+
+    try {
+      const spawnOpts: SpawnOptions = {
+        agent_id: effectiveType,
+        prompt,
+        handoff: handoff as HandoffPacket | undefined,
+        mission_id: mission_id ?? context.missionId,
+        parent_run_id: parent_run_id ?? context.runId,
+        thread_id: context.threadId,
+      };
+      const id = spawnTask(spawnOpts);
+      const agentLabel = agent_id ? `specialist:${agent_id}` : `type:${type}`;
+      return JSON.stringify({ task_id: id, agent: agentLabel, status: "running" });
+    } catch (e) {
+      return `Error spawning task: ${e instanceof Error ? e.message : String(e)}`;
+    }
+  };
+}
+
+// ---------------------------------------------------------------------------
+// taskTools — static version (no inherited context)
+// ---------------------------------------------------------------------------
+
 export const taskTools = {
   Task: tool({
-    description: [
-      "Spawn a background specialist agent to work on a task autonomously.",
-      "Returns a task ID you can use with TaskOutput to check progress.",
-      "",
-      "SPECIALIST AGENTS (use agent_id):",
-      "  product-manager — requirements, roadmapping, scope control",
-      "  designer        — UX/UI specs, component design, interaction states",
-      "  developer       — implementation, bug fixing, code verification",
-      "  researcher      — codebase recon, external research, decision support",
-      "  operator        — environment setup, configuration, dependency management",
-      "",
-      "GENERAL AGENTS (use type):",
-      "  coder, explore, plan, general-purpose, tomu-operator",
-    ].join("\n"),
-    inputSchema: z.object({
-      agent_id: z
-        .string()
-        .optional()
-        .describe(
-          "Specialist agent ID: product-manager, designer, developer, researcher, operator",
-        ),
-      type: z
-        .string()
-        .optional()
-        .describe(
-          "Legacy agent type: coder, explore, plan, general-purpose (used when agent_id is not provided)",
-        ),
-      prompt: z.string().describe("Task description / instructions for the agent"),
-      handoff: handoffSchema.describe(
-        "Structured handoff packet for specialist delegation. Strongly recommended when using agent_id.",
-      ),
-      mission_id: z
-        .string()
-        .optional()
-        .describe("Mission ID to attach this run to (for chaining agents within one mission)"),
-      parent_run_id: z
-        .string()
-        .optional()
-        .describe("Run ID of the delegating agent (enables handoff tracking)"),
-    }),
-    execute: async ({ agent_id, type, prompt, handoff, mission_id, parent_run_id }) => {
-      const effectiveType = agent_id ?? type;
-      if (!effectiveType) {
-        return "Error: Either agent_id or type must be provided";
-      }
-
-      const validTypes = listAgentTypes();
-      if (!validTypes.includes(effectiveType)) {
-        return `Error: Invalid agent "${effectiveType}". Valid options: ${validTypes.join(", ")}`;
-      }
-
-      try {
-        const id = spawnTask({
-          agent_id: effectiveType,
-          prompt,
-          handoff: handoff as HandoffPacket | undefined,
-          mission_id,
-          parent_run_id,
-        });
-        const agentLabel = agent_id ? `specialist:${agent_id}` : `type:${type}`;
-        return JSON.stringify({ task_id: id, agent: agentLabel, status: "running" });
-      } catch (e) {
-        return `Error spawning task: ${e instanceof Error ? e.message : String(e)}`;
-      }
-    },
+    description: TASK_DESCRIPTION,
+    inputSchema: taskInputSchema,
+    execute: makeTaskExecute({}),
   }),
 
   TaskOutput: tool({
@@ -278,5 +324,25 @@ export const taskTools = {
     },
   }),
 };
+
+// ---------------------------------------------------------------------------
+// createTaskTools — context-aware factory used by chat.ts and subagents
+// Injects thread_id into auto-created missions and parent_run_id into handoffs
+// ---------------------------------------------------------------------------
+
+export function createTaskTools(context: {
+  missionId?: string;
+  runId?: string;
+  threadId?: string;
+}) {
+  return {
+    Task: tool({
+      description: TASK_DESCRIPTION,
+      inputSchema: taskInputSchema,
+      execute: makeTaskExecute(context),
+    }),
+    TaskOutput: taskTools.TaskOutput,
+  };
+}
 
 export { redactSecrets } from "./redact.js";

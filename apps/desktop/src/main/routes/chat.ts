@@ -9,7 +9,7 @@ import { getConfig, getConfigDir, sqlite } from "../db.js";
 import { createLLMProvider } from "../llm.js";
 import { buildSystemPrompt } from "../context.js";
 import { triggerAutoTitle } from "./threads.js";
-import { agentTools, taskTools, redactSecrets } from "../tools/index.js";
+import { agentTools, createTaskTools, redactSecrets } from "../tools/index.js";
 import { storeMemory } from "../memory.js";
 import { indexMessage } from "../search.js";
 
@@ -264,7 +264,7 @@ router.post("/chat/completions", async (req, res) => {
       model: llmProvider(targetModel),
       system: systemPrompt,
       messages: conversationMessages,
-      tools: { ...agentTools, ...taskTools },
+      tools: { ...agentTools, ...createTaskTools({ threadId: activeThreadId }) },
       stopWhen: stepCountIs(25),
       abortSignal: abortController.signal,
       ...(providerOptions && { providerOptions }),
