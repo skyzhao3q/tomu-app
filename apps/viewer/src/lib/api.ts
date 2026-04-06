@@ -1,4 +1,4 @@
-import type { Provider, Config, Model, Thread, Person, Skill, SubAgent } from '@tomu/core';
+import type { Provider, Config, Model, Thread, Person, Skill, AgentMission, AgentRun, AgentHandoff, HandoffPacket, AgentProfile, AgentsConfig } from '@tomu/core';
 
 const API_BASE = '/api';
 
@@ -36,6 +36,28 @@ export interface CreateProviderRequest {
   type: Provider['type'];
   api_key?: string;
   base_url?: string;
+}
+
+export interface TaskResult {
+  id: string;
+  type: string;
+  status: 'running' | 'completed' | 'failed';
+  prompt: string;
+  result?: string;
+  error?: string;
+  startedAt: string;
+  completedAt?: string;
+  mission_id?: string;
+  run_id?: string;
+  agent_id?: string;
+  agent_name?: string;
+  handoff?: HandoffPacket;
+}
+
+export interface MissionDetail {
+  mission: AgentMission;
+  runs: AgentRun[];
+  handoffs: AgentHandoff[];
 }
 
 export interface ChatRequest {
@@ -110,12 +132,20 @@ export const api = {
     fetchJSON<Skill>(`/skills/${id}/toggle`, { method: 'PUT' }),
 
   // Tasks (sub-agents)
-  getTasks: () => fetchJSON<SubAgent[]>('/tasks'),
-  getTask: (id: string) => fetchJSON<SubAgent>(`/tasks/${id}`),
+  getTasks: () => fetchJSON<TaskResult[]>('/tasks'),
+  getTask: (id: string) => fetchJSON<TaskResult>(`/tasks/${id}`),
   createTask: (type: string, prompt: string) =>
-    fetchJSON<SubAgent>('/tasks', { method: 'POST', body: { subagent_type: type, prompt } }),
+    fetchJSON<TaskResult>('/tasks', { method: 'POST', body: { subagent_type: type, prompt } }),
   deleteTask: (id: string) =>
     fetchJSON<void>(`/tasks/${id}`, { method: 'DELETE' }),
+
+  // Missions
+  getMissions: (thread_id?: string) => {
+    const qs = thread_id ? `?thread_id=${encodeURIComponent(thread_id)}` : '';
+    return fetchJSON<AgentMission[]>(`/missions${qs}`);
+  },
+  getMission: (id: string) => fetchJSON<MissionDetail>(`/missions/${id}`),
+  getMissionRuns: (id: string) => fetchJSON<AgentRun[]>(`/missions/${id}/runs`),
 
   // Thread search
   searchThreads: (query: string, limit?: number) =>
@@ -147,6 +177,19 @@ export const api = {
   exportSettings: () => fetchJSON<unknown>('/export/settings'),
   importThreads: (data: unknown) => fetchJSON<void>('/import/threads', { method: 'POST', body: data }),
   importMemories: (data: unknown) => fetchJSON<void>('/import/memories', { method: 'POST', body: data }),
+
+  // Agents
+  getAgentsConfig: () => fetchJSON<AgentsConfig>('/settings/agents'),
+  updateAgentsGlobal: (data: { enabled?: boolean; allowSubagentDelegation?: boolean }) =>
+    fetchJSON<AgentsConfig>('/settings/agents', { method: 'PUT', body: data }),
+  createAgentProfile: (data: Omit<AgentProfile, 'builtIn'>) =>
+    fetchJSON<AgentProfile>('/settings/agents/profiles', { method: 'POST', body: data }),
+  updateAgentProfile: (id: string, data: Partial<AgentProfile>) =>
+    fetchJSON<AgentProfile>(`/settings/agents/profiles/${encodeURIComponent(id)}`, { method: 'PUT', body: data }),
+  deleteAgentProfile: (id: string) =>
+    fetchJSON<void>(`/settings/agents/profiles/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  resetAgentProfile: (id: string) =>
+    fetchJSON<AgentProfile>(`/settings/agents/profiles/${encodeURIComponent(id)}/reset`, { method: 'POST' }),
 
   // Chat (SSE streaming)
   chatCompletions: (body: ChatRequest, signal?: AbortSignal) => {
