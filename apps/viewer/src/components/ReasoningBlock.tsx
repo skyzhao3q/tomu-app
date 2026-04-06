@@ -5,6 +5,7 @@ import { cn } from '@tomu/ui';
 interface ReasoningBlockProps {
   text: string;
   state: 'streaming' | 'done';
+  rightSlot?: React.ReactNode;
 }
 
 function BrainIcon({ className }: { className?: string }) {
@@ -25,7 +26,7 @@ function BrainIcon({ className }: { className?: string }) {
   );
 }
 
-export function ReasoningBlock({ text, state }: ReasoningBlockProps) {
+export function ReasoningBlock({ text, state, rightSlot }: ReasoningBlockProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [duration, setDuration] = useState<number | null>(null);
   const startTimeRef = useRef<number | null>(null);
@@ -57,25 +58,28 @@ export function ReasoningBlock({ text, state }: ReasoningBlockProps) {
 
   return (
     <div className="mb-2">
-      <button
-        onClick={() => setIsOpen((v) => !v)}
-        className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-fg-muted hover:bg-bg-tertiary hover:text-fg-secondary transition-colors"
-      >
-        <BrainIcon
-          className={cn(
-            'h-3.5 w-3.5',
-            state === 'streaming' && 'animate-pulse text-accent',
-          )}
-        />
-        <span>{label}</span>
-        <svg
-          className={cn('h-3 w-3 transition-transform', isOpen && 'rotate-90')}
-          viewBox="0 0 24 24"
-          fill="currentColor"
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          onClick={() => setIsOpen((v) => !v)}
+          className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-fg-muted hover:bg-bg-tertiary hover:text-fg-secondary transition-colors"
         >
-          <path d="M8 5l8 7-8 7z" />
-        </svg>
-      </button>
+          <BrainIcon
+            className={cn(
+              'h-3.5 w-3.5',
+              state === 'streaming' && 'animate-pulse text-accent',
+            )}
+          />
+          <span>{label}</span>
+          <svg
+            className={cn('h-3 w-3 transition-transform', isOpen && 'rotate-90')}
+            viewBox="0 0 24 24"
+            fill="currentColor"
+          >
+            <path d="M8 5l8 7-8 7z" />
+          </svg>
+        </button>
+        {rightSlot}
+      </div>
 
       {isOpen && (
         <div className="border-l-2 border-border pl-3 mt-1 text-xs text-fg-muted">

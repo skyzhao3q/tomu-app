@@ -1,11 +1,44 @@
 import { useState, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { cn } from '@tomu/ui';
-import type { ChatMessage } from '../types';
+import type { ChatMessage, ToolCallInfo } from '../types';
 import { ToolCallDisplay } from './ToolCallDisplay';
+import { ToolSkillSummaryBadge } from './ToolSkillSummaryBadge';
 import { SubAgentTaskCard } from './SubAgentTaskCard';
 import { WidgetFrame } from './WidgetFrame';
 import { ReasoningBlock } from './ReasoningBlock';
+
+const WIDGET_TOOLS = ['widgetRenderer', 'pieChart', 'barChart'];
+
+function isValidWidgetCall(tc: ToolCallInfo): boolean {
+  if (!WIDGET_TOOLS.includes(tc.name) || !tc.result) return false;
+  try {
+    const parsed = JSON.parse(tc.result);
+    return typeof parsed?.widget_id === 'string' && typeof parsed?.html === 'string';
+  } catch {
+    return false;
+  }
+}
+
+/** Compact agent status badge shown inline next to the reasoning block */
+function AgentCallBadge({ args, status }: ToolCallInfo) {
+  const agentId = (args.agent_id as string) ?? (args.type as string) ?? 'agent';
+  const isRunning = status === 'running';
+  return (
+    <div
+      className={cn(
+        'flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs',
+        isRunning
+          ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
+          : 'border-border/60 bg-bg-tertiary text-fg-secondary',
+      )}
+    >
+      {isRunning && <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />}
+      <span>🤖</span>
+      <span>{agentId}</span>
+    </div>
+  );
+}
 
 interface MessageBubbleProps {
   message: ChatMessage;
@@ -88,7 +121,23 @@ export function MessageBubble({ message, isLast, onRetry }: MessageBubbleProps) 
   }
 
   const isUser = message.role === 'user';
-  const hasToolCalls = message.toolCalls && message.toolCalls.length > 0;
+
+  // Categorise tool calls once for assistant messages
+  const allCalls = (!isUser && message.toolCalls) ? message.toolCalls : [];
+  const agentCalls = allCalls.filter((tc) => tc.name === 'Task');
+  const widgetCalls = allCalls.filter((tc) => WIDGET_TOOLS.includes(tc.name));
+  const inlineCalls = allCalls.filter((tc) => tc.name !== 'Task' && !WIDGET_TOOLS.includes(tc.name));
+
+  // Slot shown to the right of the 思考プロセス button (and standalone when no reasoning)
+  const processingBadges =
+    inlineCalls.length > 0 || agentCalls.length > 0 ? (
+      <div className="flex flex-wrap items-center gap-1.5">
+        {inlineCalls.length > 0 && <ToolSkillSummaryBadge toolCalls={inlineCalls} />}
+        {agentCalls.map((tc) => (
+          <AgentCallBadge key={tc.id} {...tc} />
+        ))}
+      </div>
+    ) : null;
 
   return (
     <div
@@ -101,17 +150,33 @@ export function MessageBubble({ message, isLast, onRetry }: MessageBubbleProps) 
         <HoverActions message={message} isLast={isLast} onRetry={onRetry} />
       )}
 
-      {/* Reasoning block (before text content) */}
-      {!isUser && message.reasoning && (
+      {/* ── Processing section (reasoning + tool/agent badges) ── */}
+      {!isUser && (message.reasoning || processingBadges) && (
         <div className="w-full max-w-[80%]">
-          <ReasoningBlock
-            text={message.reasoning}
-            state={message.reasoningState ?? 'done'}
-          />
+          {message.reasoning ? (
+            /* Reasoning present: show badges to the right of the button */
+            <ReasoningBlock
+              text={message.reasoning}
+              state={message.reasoningState ?? 'done'}
+              rightSlot={processingBadges}
+            />
+          ) : (
+            /* No reasoning: badges standalone before text */
+            <div className="mb-2">{processingBadges}</div>
+          )}
+
+          {/* SubAgentTaskCards — detailed monitoring, part of processing section */}
+          {agentCalls.length > 0 && (
+            <div className="space-y-1">
+              {agentCalls.map((tc) => (
+                <SubAgentTaskCard key={tc.id} {...tc} />
+              ))}
+            </div>
+          )}
         </div>
       )}
 
-      {/* Text content (before tool calls) */}
+      {/* ── Text content ── */}
       {message.content && (
         <div
           className={cn(
@@ -131,34 +196,21 @@ export function MessageBubble({ message, isLast, onRetry }: MessageBubbleProps) 
         </div>
       )}
 
-      {/* Tool calls */}
-      {hasToolCalls && (
-        <div className="w-full max-w-[80%]">
-          {message.toolCalls!.map((tc) => {
-            if (tc.name === 'Task') {
-              return <SubAgentTaskCard key={tc.id} {...tc} />;
+      {/* ── Widget frames (output visualisations, below text) ── */}
+      {widgetCalls.length > 0 && (
+        <div className="w-full max-w-[80%] space-y-1">
+          {widgetCalls.map((tc) => {
+            if (isValidWidgetCall(tc)) {
+              const parsed = JSON.parse(tc.result!);
+              return (
+                <WidgetFrame
+                  key={tc.id}
+                  widgetId={parsed.widget_id}
+                  html={parsed.html}
+                  title={parsed.title}
+                />
+              );
             }
-
-            // Check for widget result
-            const WIDGET_TOOLS = ['widgetRenderer', 'pieChart', 'barChart'];
-            if (WIDGET_TOOLS.includes(tc.name) && tc.result) {
-              try {
-                const parsed = JSON.parse(tc.result);
-                if (parsed && typeof parsed.widget_id === 'string' && typeof parsed.html === 'string') {
-                  return (
-                    <WidgetFrame
-                      key={tc.id}
-                      widgetId={parsed.widget_id}
-                      html={parsed.html}
-                      title={parsed.title}
-                    />
-                  );
-                }
-              } catch {
-                // Not valid JSON, fall through to default display
-              }
-            }
-
             return <ToolCallDisplay key={tc.id} {...tc} />;
           })}
         </div>
