@@ -3,6 +3,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as crypto from "node:crypto";
 import { getConfigDir } from "../db.js";
+import type { Request, Response } from "express";
 
 const router: RouterType = Router();
 
@@ -57,6 +58,26 @@ router.post("/image/edit", (req, res) => {
   }
   const id = crypto.randomUUID();
   res.json({ id, url: `https://example.com/edited/${id}.png`, prompt });
+});
+
+router.get("/generated-images/:filename", (req: Request, res: Response) => {
+  const { filename } = req.params;
+  // Prevent path traversal
+  if (filename.includes("/") || filename.includes("..")) {
+    res.status(400).json({ error: "Invalid filename" });
+    return;
+  }
+  const filePath = path.join(getConfigDir(), "generated-images", filename);
+  if (!fs.existsSync(filePath)) {
+    res.status(404).json({ error: "Not found" });
+    return;
+  }
+  const imgData = fs.readFileSync(filePath);
+  const ext = path.extname(filename).toLowerCase();
+  const contentType = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg';
+  res.setHeader('Content-Type', contentType);
+  res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+  res.end(imgData);
 });
 
 export default router;

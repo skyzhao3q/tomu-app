@@ -9,6 +9,7 @@ import { WidgetFrame } from './WidgetFrame';
 import { ReasoningBlock } from './ReasoningBlock';
 
 const WIDGET_TOOLS = ['widgetRenderer', 'pieChart', 'barChart'];
+const IMAGE_TOOLS = ['GenerateImage'];
 
 function isValidWidgetCall(tc: ToolCallInfo): boolean {
   if (!WIDGET_TOOLS.includes(tc.name) || !tc.result) return false;
@@ -126,7 +127,8 @@ export function MessageBubble({ message, isLast, onRetry }: MessageBubbleProps) 
   const allCalls = (!isUser && message.toolCalls) ? message.toolCalls : [];
   const agentCalls = allCalls.filter((tc) => tc.name === 'Task');
   const widgetCalls = allCalls.filter((tc) => WIDGET_TOOLS.includes(tc.name));
-  const inlineCalls = allCalls.filter((tc) => tc.name !== 'Task' && !WIDGET_TOOLS.includes(tc.name));
+  const imageCalls = allCalls.filter((tc) => IMAGE_TOOLS.includes(tc.name));
+  const inlineCalls = allCalls.filter((tc) => tc.name !== 'Task' && !WIDGET_TOOLS.includes(tc.name) && !IMAGE_TOOLS.includes(tc.name));
   const toolOnlyCalls = inlineCalls.filter((tc) => tc.type !== 'skill');
   const skillOnlyCalls = inlineCalls.filter((tc) => tc.type === 'skill');
 
@@ -212,6 +214,40 @@ export function MessageBubble({ message, isLast, onRetry }: MessageBubbleProps) 
                   html={parsed.html}
                   title={parsed.title}
                 />
+              );
+            }
+            return <ToolCallDisplay key={tc.id} {...tc} />;
+          })}
+        </div>
+      )}
+
+      {/* ── Generated images ── */}
+      {imageCalls.length > 0 && (
+        <div className="w-full max-w-[80%] space-y-1.5">
+          {imageCalls.map((tc) => {
+            let imageUrl: string | null = null;
+            let prompt: string | null = null;
+            try {
+              const parsed = JSON.parse(tc.result ?? '{}');
+              if (typeof parsed.imageUrl === 'string') imageUrl = parsed.imageUrl;
+              if (typeof parsed.prompt === 'string') prompt = parsed.prompt;
+            } catch {
+              // fall through
+            }
+            if (imageUrl) {
+              return (
+                <div key={tc.id} className="overflow-hidden rounded-xl border border-border shadow-sm">
+                  <img
+                    src={imageUrl}
+                    alt={prompt ?? 'AI Generated'}
+                    className="w-full h-auto object-cover"
+                    loading="lazy"
+                  />
+                  <div className="flex items-center justify-between bg-bg-tertiary px-3 py-1.5">
+                    <span className="text-xs text-fg-muted">{prompt ?? 'AI Generated'}</span>
+                    <a href={imageUrl} download className="text-xs text-accent hover:underline">Download</a>
+                  </div>
+                </div>
               );
             }
             return <ToolCallDisplay key={tc.id} {...tc} />;
