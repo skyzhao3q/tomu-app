@@ -216,11 +216,19 @@ export function useChat() {
                   );
 
                   if (existingCall?.name === 'Task') {
-                    let taskStatus: AgentTask['status'] = 'success';
+                    let taskStatus: AgentTask['status'] = 'running';
                     let output: string | undefined;
+                    let backendTaskId: string | undefined;
                     try {
                       const r = JSON.parse(parsed.result ?? '{}') as Record<string, unknown>;
-                      if (r.status === 'failed' || r.error) taskStatus = 'failed';
+                      if (r.status === 'failed' || r.error) {
+                        taskStatus = 'failed';
+                      } else if (r.status === 'running') {
+                        taskStatus = 'running';
+                        backendTaskId = r.task_id as string;
+                      } else {
+                        taskStatus = 'success';
+                      }
                       output = (r.result ?? r.output ?? parsed.result) as string | undefined;
                     } catch {
                       output = parsed.result as string | undefined;
@@ -230,17 +238,48 @@ export function useChat() {
                       if (!existing) return prev;
                       return {
                         ...prev,
-                        [parsed.id]: { ...existing, status: taskStatus, output, endedAt: Date.now() },
+                        [parsed.id]: {
+                          ...existing,
+                          status: taskStatus,
+                          output,
+                          ...(taskStatus !== 'running' ? { endedAt: Date.now() } : {}),
+                        },
                       };
                     });
-                    // Auto-cleanup after 5 minutes
-                    setTimeout(() => {
-                      setAgentTasks((prev) => {
-                        const next = { ...prev };
-                        delete next[parsed.id];
-                        return next;
-                      });
-                    }, 5 * 60 * 1000);
+                    const scheduleCleanup = (callId: string) => {
+                      setTimeout(() => {
+                        setAgentTasks((prev) => {
+                          const next = { ...prev };
+                          delete next[callId];
+                          return next;
+                        });
+                      }, 5 * 60 * 1000);
+                    };
+                    if (backendTaskId) {
+                      const callId = parsed.id;
+                      const tid = backendTaskId;
+                      const iv = setInterval(async () => {
+                        try {
+                          const t = await api.getTask(tid);
+                          if (t.status === 'running') return;
+                          clearInterval(iv);
+                          const finalStatus: AgentTask['status'] = t.status === 'completed' ? 'success' : 'failed';
+                          setAgentTasks((prev) => {
+                            const ex = prev[callId];
+                            if (!ex) return prev;
+                            return {
+                              ...prev,
+                              [callId]: { ...ex, status: finalStatus, output: t.result, endedAt: Date.now() },
+                            };
+                          });
+                          scheduleCleanup(callId);
+                        } catch { /* ignore transient errors */ }
+                      }, 3000);
+                      // Safety: stop polling after 30 minutes regardless
+                      setTimeout(() => clearInterval(iv), 30 * 60 * 1000);
+                    } else {
+                      scheduleCleanup(parsed.id);
+                    }
                   }
 
                   updateAssistant();
