@@ -7,12 +7,12 @@ import { resumeStaleRuns } from "./tasks.js";
 import { seedBuiltInAgents } from "./agents.js";
 
 const app = express();
-const port = Number(process.env.PORT) || 33001;
-const VITE_PORT = Number(process.env.VITE_PORT) || 55173;
+const port = Number(process.env.PORT) || 33002;
+const vitePort = Number(process.env.VITE_PORT) || 55174;
 
 app.use(
   cors({
-    origin: [`http://localhost:${VITE_PORT}`],
+    origin: [`http://localhost:${vitePort}`],
     credentials: true,
     allowedHeaders: ["Content-Type", "Authorization"],
   }),

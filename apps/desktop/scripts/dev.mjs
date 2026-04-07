@@ -125,5 +125,6 @@ try {
 // Suppress DevTools-internal noise (Autofill CDP, VE context errors from devtools:// URLs)
 launch("electron", "npx", ["electron", "."], {
   cwd: desktopRoot,
+  env: { ...process.env, EXPRESS_PORT: String(EXPRESS_PORT), VITE_PORT: String(VITE_PORT) },
   stderrFilter: (line) => line.includes("devtools://devtools/bundled"),
 });
