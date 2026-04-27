@@ -197,6 +197,7 @@ export function useChat() {
                       }
                       output = (r.result ?? r.output ?? parsed.result) as string | undefined;
                     } catch {
+                      taskStatus = 'failed';
                       output = parsed.result as string | undefined;
                     }
                     setAgentTasks((prev) => {
