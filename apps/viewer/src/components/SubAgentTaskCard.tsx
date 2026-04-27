@@ -114,7 +114,7 @@ export function SubAgentTaskCard({ id, args, result, status: toolStatus }: SubAg
 
   // §6.2 — task_id lives in the tool result JSON, not args
   const parsedResult = parseResultJson(result);
-  const taskId = (parsedResult?.task_id as string) ?? id;
+  const taskId = parsedResult?.task_id as string | undefined;
 
   const agentType =
     (args.agent_id as string) ?? (args.type as string) ?? 'general-purpose';
@@ -123,7 +123,7 @@ export function SubAgentTaskCard({ id, args, result, status: toolStatus }: SubAg
   // Derive display status from polled task (authoritative) or tool call status
   const taskStatus: string = stopped
     ? 'stopped'
-    : task?.status ?? (toolStatus === 'error' ? 'failed' : 'running');
+    : task?.status ?? (toolStatus === 'error' || (toolStatus === 'completed' && !taskId) ? 'failed' : 'running');
   const isRunning = taskStatus === 'running';
 
   const output = task?.result ?? task?.error;
@@ -142,7 +142,7 @@ export function SubAgentTaskCard({ id, args, result, status: toolStatus }: SubAg
 
   // §6.1 / §6.3 — poll task + mission
   const poll = useCallback(async () => {
-    if (stopped) return;
+    if (stopped || !taskId) return;
     try {
       const t = await api.getTask(taskId);
       setTask(t);
@@ -156,15 +156,16 @@ export function SubAgentTaskCard({ id, args, result, status: toolStatus }: SubAg
   }, [taskId, stopped]);
 
   useEffect(() => {
+    if (!taskId) return;         // don't poll before result arrives
     poll(); // fetch immediately
     if (!isRunning) return;
     const interval = setInterval(poll, 3000);
     return () => clearInterval(interval);
-  }, [poll, isRunning]);
+  }, [poll, isRunning, taskId]);
 
   // Fetch once when tool call first completes (result arrives)
   useEffect(() => {
-    if (toolStatus === 'completed' && !task) poll();
+    if (toolStatus === 'completed' && taskId && !task) poll();
   }, [toolStatus]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-expand short output
@@ -176,6 +177,7 @@ export function SubAgentTaskCard({ id, args, result, status: toolStatus }: SubAg
 
   // §6.4 — stop / intervention
   const handleStop = useCallback(async () => {
+    if (!taskId) return;
     try {
       await api.deleteTask(taskId);
     } catch {
