@@ -14,8 +14,8 @@ import { isQuitting, setQuitting } from "./app-state.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const isDev = !app.isPackaged;
-const EXPRESS_PORT = 33001;
-const VIEWER_DEV_URL = `http://localhost:55173`;
+const EXPRESS_PORT = Number(process.env.EXPRESS_PORT) || 33001;
+const VIEWER_DEV_URL = `http://localhost:${Number(process.env.VITE_PORT) || 55173}`;
 
 let mainWindow: BrowserWindow | null = null;
 let serverProcess: ChildProcess | null = null;
@@ -108,7 +108,7 @@ function setContentSecurityPolicy(): void {
       responseHeaders: {
         ...details.responseHeaders,
         "Content-Security-Policy": [
-          "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://localhost:33001; img-src 'self' data:; font-src 'self'",
+          "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' http://localhost:33001; img-src 'self' data: blob:; font-src 'self'",
         ],
       },
     });

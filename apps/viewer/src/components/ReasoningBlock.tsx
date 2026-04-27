@@ -50,10 +50,10 @@ export function ReasoningBlock({ text, state }: ReasoningBlockProps) {
 
   const label =
     state === 'streaming'
-      ? '思考中...'
+      ? 'Thinking...'
       : duration !== null
-        ? `思考プロセス (${duration}s)`
-        : '思考プロセス';
+        ? `Thought for ${duration}s`
+        : 'Reasoning';
 
   return (
     <div className="mb-2">

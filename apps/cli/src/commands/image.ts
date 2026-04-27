@@ -61,7 +61,8 @@ export function registerImage(program: Command): void {
       }
 
       const location = data.url ?? data.path ?? data.id ?? "unknown";
-      console.log(`✅ Image generated: ${location}`);
+      console.log(location);
+      console.error(`✅ Image generated: ${location}`);
     });
 
   image

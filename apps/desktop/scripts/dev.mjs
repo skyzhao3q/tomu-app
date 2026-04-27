@@ -1,15 +1,19 @@
 /**
  * Launcher script for `pnpm run electron:dev`.
- * Starts Vite, Express, and Electron in parallel, then tears everything down on exit.
+ * Starts Vite, Express, tsc --watch (electron main), and Electron in parallel,
+ * then tears everything down on exit.
  */
 
-import { spawn } from "node:child_process";
+import { spawn, execSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const desktopRoot = path.resolve(__dirname, "..");
 const repoRoot = path.resolve(desktopRoot, "..", "..");
+
+const VITE_PORT = parseInt(process.env.VITE_PORT ?? "55173");
+const EXPRESS_PORT = parseInt(process.env.EXPRESS_PORT ?? "33001");
 
 const children = [];
 
@@ -76,23 +80,40 @@ process.on("SIGTERM", () => {
 });
 process.on("exit", killAll);
 
-// 1. Start Vite dev server
-console.log("[dev] Starting Vite dev server...");
-launch("vite", "pnpm", ["--filter", "@tomu/viewer", "dev"], { cwd: repoRoot });
+// 1. Build Electron main process once (dist/electron/main.js must exist before Electron launches)
+console.log("[dev] Building Electron main process...");
+try {
+  execSync("npx tsc -b", { cwd: desktopRoot, stdio: "inherit" });
+  console.log("[dev] Electron main built");
+} catch {
+  console.error("[dev] TypeScript build failed — continuing anyway");
+}
 
-// 2. Start Express server via tsx
+// 2. Start tsc --watch in background to recompile on changes to src/electron/
+launch("tsc", "npx", ["tsc", "-b", "--watch", "--preserveWatchOutput"], {
+  cwd: desktopRoot,
+});
+
+// 3. Start Vite dev server
+console.log("[dev] Starting Vite dev server...");
+launch("vite", "pnpm", ["--filter", "@tomu/viewer", "dev"], {
+  cwd: repoRoot,
+  env: { ...process.env, VITE_PORT: String(VITE_PORT), EXPRESS_PORT: String(EXPRESS_PORT) },
+});
+
+// 4. Start Express server via tsx
 console.log("[dev] Starting Express server...");
 launch("express", "pnpm", ["--filter", "@tomu/desktop", "dev"], {
   cwd: repoRoot,
-  env: { ...process.env, PORT: "33001" },
+  env: { ...process.env, PORT: String(EXPRESS_PORT) },
 });
 
-// 3. Wait for both servers, then launch Electron
+// 5. Wait for both servers, then launch Electron
 try {
   console.log("[dev] Waiting for servers to be ready...");
   await Promise.all([
-    waitForServer("http://localhost:55173"),
-    waitForServer("http://localhost:33001/api/health"),
+    waitForServer(`http://localhost:${VITE_PORT}`),
+    waitForServer(`http://localhost:${EXPRESS_PORT}/api/health`),
   ]);
   console.log("[dev] Servers ready — launching Electron");
 } catch (err) {
@@ -104,5 +125,6 @@ try {
 // Suppress DevTools-internal noise (Autofill CDP, VE context errors from devtools:// URLs)
 launch("electron", "npx", ["electron", "."], {
   cwd: desktopRoot,
+  env: { ...process.env, VITE_PORT: String(VITE_PORT), EXPRESS_PORT: String(EXPRESS_PORT) },
   stderrFilter: (line) => line.includes("devtools://devtools/bundled"),
 });

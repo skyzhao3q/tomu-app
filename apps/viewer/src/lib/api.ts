@@ -117,6 +117,23 @@ export const api = {
   deleteTask: (id: string) =>
     fetchJSON<void>(`/tasks/${id}`, { method: 'DELETE' }),
 
+  // Missions
+  getMissionsByThread: (threadId: string) =>
+    fetchJSON<Array<{
+      id: string; thread_id: string; title: string;
+      status: string; created_at: string; updated_at: string;
+    }>>(`/missions?thread_id=${encodeURIComponent(threadId)}`),
+  getMission: (id: string) =>
+    fetchJSON<{
+      mission: { id: string; title: string; status: string; created_at: string };
+      runs: Array<{ id: string; agent_id: string; agent_name: string; status: string; input_summary: string; output_summary: string | null }>;
+      handoffs: Array<{ id: string; from_run_id: string | null; to_agent_id: string; to_agent_name: string; status: string; packet: string }>;
+    }>(`/missions/${id}`),
+
+  // Thread messages
+  getThreadMessages: (threadId: string) =>
+    fetchJSON<Array<{ id: string; role: string; content: unknown; timestamp?: string }>>(`/threads/${threadId}/messages`),
+
   // Thread search
   searchThreads: (query: string, limit?: number) =>
     fetchJSON<Array<{ thread_id: string; title: string; snippet: string; rank: number }>>('/threads/search', { method: 'POST', body: { query, limit } }),

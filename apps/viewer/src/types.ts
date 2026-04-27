@@ -10,6 +10,8 @@ export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
+  images?: string[];
+  contentState?: 'streaming' | 'done';
   reasoning?: string;
   reasoningState?: 'streaming' | 'done';
   toolCalls?: ToolCallInfo[];

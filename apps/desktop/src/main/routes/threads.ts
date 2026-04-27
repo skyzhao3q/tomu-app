@@ -373,5 +373,38 @@ router.post("/threads/:id/switch", (req, res) => {
   res.json({});
 });
 
+router.post("/threads/:threadId/send-photo", (req, res) => {
+  const { threadId } = req.params;
+  const { filePath } = req.body as { filePath: string; caption?: string };
+
+  if (!filePath || !fs.existsSync(filePath)) {
+    res.status(400).json({ error: "filePath is required and must exist" });
+    return;
+  }
+
+  const ext = path.extname(filePath).toLowerCase().replace(".", "");
+  const mimeType = ext === "png" ? "image/png" : ext === "gif" ? "image/gif" : "image/jpeg";
+  const imageData = fs.readFileSync(filePath);
+  const dataUrl = `data:${mimeType};base64,${imageData.toString("base64")}`;
+
+  const messages = readMessages(threadId);
+  const msgId = crypto.randomUUID();
+  const timestamp = new Date().toISOString();
+
+  const newMsg: Message = {
+    id: msgId,
+    role: "assistant",
+    content: [{ type: "image", image_url: dataUrl }],
+    timestamp,
+  };
+  messages.push(newMsg);
+  writeMessages(threadId, messages);
+
+  sqlite
+    .prepare("UPDATE threads SET updated_at = ? WHERE id = ?")
+    .run(timestamp, threadId);
+
+  res.json({ ok: true, messageId: msgId });
+});
 
 export default router;

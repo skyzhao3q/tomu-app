@@ -90,6 +90,63 @@ export const mcpOauthTokens = sqliteTable("mcp_oauth_tokens", {
 });
 
 // ---------------------------------------------------------------------------
+// agent_missions
+// ---------------------------------------------------------------------------
+export const agentMissions = sqliteTable("agent_missions", {
+  id: text("id").primaryKey(),
+  thread_id: text("thread_id").notNull(),
+  root_message_id: text("root_message_id").notNull(),
+  title: text("title").notNull(),
+  status: text("status", { enum: ["active", "completed", "failed", "paused"] })
+    .notNull()
+    .default("active"),
+  created_at: text("created_at").notNull(),
+  updated_at: text("updated_at").notNull(),
+});
+
+// ---------------------------------------------------------------------------
+// agent_runs
+// ---------------------------------------------------------------------------
+export const agentRuns = sqliteTable("agent_runs", {
+  id: text("id").primaryKey(),
+  mission_id: text("mission_id")
+    .notNull()
+    .references(() => agentMissions.id, { onDelete: "cascade" }),
+  parent_run_id: text("parent_run_id"),
+  agent_id: text("agent_id").notNull(),
+  agent_name: text("agent_name").notNull(),
+  status: text("status", { enum: ["queued", "running", "completed", "failed"] })
+    .notNull()
+    .default("queued"),
+  input_summary: text("input_summary").notNull(),
+  output_summary: text("output_summary"),
+  created_at: text("created_at").notNull(),
+  updated_at: text("updated_at").notNull(),
+});
+
+// ---------------------------------------------------------------------------
+// agent_handoffs
+// ---------------------------------------------------------------------------
+export const agentHandoffs = sqliteTable("agent_handoffs", {
+  id: text("id").primaryKey(),
+  mission_id: text("mission_id")
+    .notNull()
+    .references(() => agentMissions.id, { onDelete: "cascade" }),
+  from_run_id: text("from_run_id"),
+  to_agent_id: text("to_agent_id").notNull(),
+  to_agent_name: text("to_agent_name").notNull(),
+  to_run_id: text("to_run_id"),
+  status: text("status", { enum: ["created", "accepted", "completed", "failed"] })
+    .notNull()
+    .default("created"),
+  /** JSON-serialised HandoffPacket */
+  packet: text("packet").notNull(),
+  result_summary: text("result_summary"),
+  created_at: text("created_at").notNull(),
+  updated_at: text("updated_at").notNull(),
+});
+
+// ---------------------------------------------------------------------------
 // Virtual tables (cannot be defined in Drizzle)
 //
 // memory_embeddings — sqlite-vec virtual table for vector similarity search.
