@@ -184,20 +184,85 @@ beforeEach(() => {
     res.json({});
   });
 
-  // ---- Tasks ----
+  // ---- Tasks (sub-agent runs) ----
+  app.post("/api/tasks", (req, res) => {
+    const { agent_id, subagent_type, type, prompt } = req.body as {
+      agent_id?: string; subagent_type?: string; type?: string; prompt?: string;
+    };
+    const effectiveType = agent_id ?? subagent_type ?? type;
+    if (!effectiveType || !prompt) {
+      res.status(400).json({ error: "agent_id (or type) and prompt are required" });
+      return;
+    }
+    const now = new Date().toISOString();
+    const missionId = crypto.randomUUID();
+    const runId = crypto.randomUUID();
+    db.prepare(
+      "INSERT INTO agent_missions (id, thread_id, root_message_id, title, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    ).run(missionId, "standalone", crypto.randomUUID(), prompt.slice(0, 80), "active", now, now);
+    db.prepare(
+      "INSERT INTO agent_runs (id, mission_id, parent_run_id, agent_id, agent_name, status, input_summary, output_summary, messages_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).run(runId, missionId, null, effectiveType, effectiveType, "running", prompt.slice(0, 500), null, null, now, now);
+    res.json({ id: runId, status: "running" });
+  });
   app.get("/api/tasks", (_req, res) => {
-    res.json({ tasks: [] });
+    const runs = db.prepare("SELECT * FROM agent_runs ORDER BY created_at DESC").all() as Array<Record<string, unknown>>;
+    const tasks = runs.map((run) => ({
+      id: run.id,
+      type: run.agent_id,
+      status: run.status === "completed" ? "completed" : run.status === "failed" ? "failed" : "running",
+      prompt: run.input_summary,
+      startedAt: run.created_at,
+      completedAt: (run.status === "completed" || run.status === "failed") ? run.updated_at : undefined,
+      mission_id: run.mission_id,
+      agent_id: run.agent_id,
+      agent_name: run.agent_name,
+    }));
+    res.json(tasks);
   });
   app.get("/api/tasks/:id", (req, res) => {
-    res.json({ id: req.params.id, title: "Test", status: "pending" });
+    const run = db.prepare("SELECT * FROM agent_runs WHERE id = ?").get(req.params.id) as Record<string, unknown> | undefined;
+    if (!run) { res.status(404).json({ error: "Task not found" }); return; }
+    res.json({
+      id: run.id,
+      type: run.agent_id,
+      status: run.status === "completed" ? "completed" : run.status === "failed" ? "failed" : "running",
+      prompt: run.input_summary,
+      result: run.status === "completed" ? run.output_summary : undefined,
+      error: run.status === "failed" ? run.output_summary : undefined,
+      startedAt: run.created_at,
+      completedAt: (run.status === "completed" || run.status === "failed") ? run.updated_at : undefined,
+      mission_id: run.mission_id,
+      agent_id: run.agent_id,
+      agent_name: run.agent_name,
+    });
   });
-  app.post("/api/tasks", (req, res) => {
-    const { title } = req.body as { title?: string };
-    if (!title) { res.status(400).json({ error: "title is required" }); return; }
-    res.status(201).json({ id: crypto.randomUUID(), title });
+  app.delete("/api/tasks/:id", (req, res) => {
+    const result = db.prepare("DELETE FROM agent_runs WHERE id = ?").run(req.params.id);
+    if (result.changes === 0) { res.status(404).json({ error: "Task not found" }); return; }
+    res.json({ ok: true });
   });
-  app.delete("/api/tasks/:id", (_req, res) => {
-    res.status(204).end();
+
+  // ---- Missions ----
+  app.get("/api/missions", (req, res) => {
+    const { thread_id } = req.query as { thread_id?: string };
+    const missions = thread_id
+      ? db.prepare("SELECT * FROM agent_missions WHERE thread_id = ? ORDER BY created_at DESC").all(thread_id)
+      : db.prepare("SELECT * FROM agent_missions ORDER BY created_at DESC").all();
+    res.json(missions);
+  });
+  app.get("/api/missions/:id/runs", (req, res) => {
+    const mission = db.prepare("SELECT * FROM agent_missions WHERE id = ?").get(req.params.id) as Record<string, unknown> | undefined;
+    if (!mission) { res.status(404).json({ error: "Mission not found" }); return; }
+    const runs = db.prepare("SELECT * FROM agent_runs WHERE mission_id = ? ORDER BY created_at ASC").all(mission.id);
+    res.json(runs);
+  });
+  app.get("/api/missions/:id", (req, res) => {
+    const mission = db.prepare("SELECT * FROM agent_missions WHERE id = ?").get(req.params.id) as Record<string, unknown> | undefined;
+    if (!mission) { res.status(404).json({ error: "Mission not found" }); return; }
+    const runs = db.prepare("SELECT * FROM agent_runs WHERE mission_id = ? ORDER BY created_at ASC").all(mission.id);
+    const handoffs = db.prepare("SELECT * FROM agent_handoffs WHERE mission_id = ? ORDER BY created_at ASC").all(mission.id);
+    res.json({ mission, runs, handoffs });
   });
 
   // ---- Plugins ----
@@ -694,23 +759,150 @@ describe("People API", () => {
   });
 });
 
-describe("Tasks API", () => {
-  test("GET /api/tasks returns task list", async () => {
+describe("Tasks API (sub-agent runs)", () => {
+  test("POST /api/tasks creates a running task", async () => {
+    const res = await request(app)
+      .post("/api/tasks")
+      .send({ agent_id: "researcher", prompt: "research something" });
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty("id");
+    expect(res.body).toHaveProperty("status", "running");
+  });
+
+  test("POST /api/tasks accepts subagent_type field", async () => {
+    const res = await request(app)
+      .post("/api/tasks")
+      .send({ subagent_type: "coder", prompt: "write some code" });
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty("id");
+    expect(res.body).toHaveProperty("status", "running");
+  });
+
+  test("POST /api/tasks returns 400 without prompt", async () => {
+    const res = await request(app)
+      .post("/api/tasks")
+      .send({ agent_id: "researcher" });
+    expect(res.status).toBe(400);
+    expect(res.body).toHaveProperty("error");
+  });
+
+  test("POST /api/tasks returns 400 without agent_id", async () => {
+    const res = await request(app)
+      .post("/api/tasks")
+      .send({ prompt: "do something" });
+    expect(res.status).toBe(400);
+    expect(res.body).toHaveProperty("error");
+  });
+
+  test("GET /api/tasks returns array of tasks", async () => {
+    await request(app).post("/api/tasks").send({ agent_id: "researcher", prompt: "task one" });
+    await request(app).post("/api/tasks").send({ agent_id: "researcher", prompt: "task two" });
     const res = await request(app).get("/api/tasks");
     expect(res.status).toBe(200);
-    expect(res.body).toHaveProperty("tasks");
+    expect(Array.isArray(res.body)).toBe(true);
+    expect(res.body.length).toBe(2);
+    expect(res.body[0]).toHaveProperty("id");
+    expect(res.body[0]).toHaveProperty("status");
+    expect(res.body[0]).toHaveProperty("mission_id");
   });
 
-  test("POST /api/tasks creates task", async () => {
-    const res = await request(app).post("/api/tasks").send({ title: "Test task" });
-    expect(res.status).toBe(201);
-    expect(res.body).toHaveProperty("id");
-    expect(res.body).toHaveProperty("title", "Test task");
+  test("GET /api/tasks/:id returns task with mission_id", async () => {
+    const created = await request(app)
+      .post("/api/tasks")
+      .send({ agent_id: "researcher", prompt: "get me" });
+    const res = await request(app).get(`/api/tasks/${created.body.id}`);
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty("id", created.body.id);
+    expect(res.body).toHaveProperty("status", "running");
+    expect(res.body).toHaveProperty("mission_id");
+    expect(res.body).toHaveProperty("agent_id", "researcher");
   });
 
-  test("DELETE /api/tasks/:id deletes task", async () => {
-    const res = await request(app).delete("/api/tasks/t1");
-    expect(res.status).toBe(204);
+  test("GET /api/tasks/:id returns 404 for missing task", async () => {
+    const res = await request(app).get("/api/tasks/nonexistent");
+    expect(res.status).toBe(404);
+    expect(res.body).toHaveProperty("error");
+  });
+
+  test("DELETE /api/tasks/:id cancels task and returns ok", async () => {
+    const created = await request(app)
+      .post("/api/tasks")
+      .send({ agent_id: "researcher", prompt: "cancel me" });
+    const del = await request(app).delete(`/api/tasks/${created.body.id}`);
+    expect(del.status).toBe(200);
+    expect(del.body).toHaveProperty("ok", true);
+  });
+
+  test("DELETE /api/tasks/:id returns 404 for missing task", async () => {
+    const res = await request(app).delete("/api/tasks/nonexistent");
+    expect(res.status).toBe(404);
+    expect(res.body).toHaveProperty("error");
+  });
+});
+
+describe("Missions API", () => {
+  test("GET /api/missions returns mission list", async () => {
+    await request(app).post("/api/tasks").send({ agent_id: "researcher", prompt: "mission test" });
+    const res = await request(app).get("/api/missions");
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body)).toBe(true);
+    expect(res.body.length).toBe(1);
+    expect(res.body[0]).toHaveProperty("id");
+    expect(res.body[0]).toHaveProperty("status", "active");
+    expect(res.body[0]).toHaveProperty("title");
+  });
+
+  test("GET /api/missions?thread_id filters by thread", async () => {
+    await request(app).post("/api/tasks").send({ agent_id: "researcher", prompt: "some mission" });
+    const res = await request(app).get("/api/missions?thread_id=nonexistent");
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body)).toBe(true);
+    expect(res.body.length).toBe(0);
+  });
+
+  test("GET /api/missions/:id returns mission with runs and handoffs", async () => {
+    const taskRes = await request(app)
+      .post("/api/tasks")
+      .send({ agent_id: "researcher", prompt: "detailed mission" });
+    const taskDetail = await request(app).get(`/api/tasks/${taskRes.body.id}`);
+    const missionId = taskDetail.body.mission_id;
+
+    const res = await request(app).get(`/api/missions/${missionId}`);
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty("mission");
+    expect(res.body).toHaveProperty("runs");
+    expect(res.body).toHaveProperty("handoffs");
+    expect(Array.isArray(res.body.runs)).toBe(true);
+    expect(res.body.runs.length).toBe(1);
+    expect(res.body.runs[0]).toHaveProperty("agent_id", "researcher");
+    expect(Array.isArray(res.body.handoffs)).toBe(true);
+  });
+
+  test("GET /api/missions/:id returns 404 for missing mission", async () => {
+    const res = await request(app).get("/api/missions/nonexistent");
+    expect(res.status).toBe(404);
+    expect(res.body).toHaveProperty("error");
+  });
+
+  test("GET /api/missions/:id/runs returns run list", async () => {
+    const taskRes = await request(app)
+      .post("/api/tasks")
+      .send({ agent_id: "researcher", prompt: "run list test" });
+    const taskDetail = await request(app).get(`/api/tasks/${taskRes.body.id}`);
+    const missionId = taskDetail.body.mission_id;
+
+    const res = await request(app).get(`/api/missions/${missionId}/runs`);
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body)).toBe(true);
+    expect(res.body.length).toBe(1);
+    expect(res.body[0]).toHaveProperty("mission_id", missionId);
+    expect(res.body[0]).toHaveProperty("agent_id", "researcher");
+  });
+
+  test("GET /api/missions/:id/runs returns 404 for missing mission", async () => {
+    const res = await request(app).get("/api/missions/nonexistent/runs");
+    expect(res.status).toBe(404);
+    expect(res.body).toHaveProperty("error");
   });
 });
 

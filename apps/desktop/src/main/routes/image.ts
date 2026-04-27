@@ -61,7 +61,8 @@ router.post("/image/edit", (req, res) => {
 });
 
 router.get("/generated-images/:filename", (req: Request, res: Response) => {
-  const { filename } = req.params;
+  const rawFilename = req.params.filename;
+  const filename = Array.isArray(rawFilename) ? rawFilename[0] : rawFilename;
   // Prevent path traversal
   if (filename.includes("/") || filename.includes("..")) {
     res.status(400).json({ error: "Invalid filename" });
