@@ -127,6 +127,46 @@ export function resetTestDb(): void {
       tokenize='porter unicode61'
     );
   `);
+
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS agent_missions (
+      id TEXT PRIMARY KEY,
+      thread_id TEXT NOT NULL,
+      root_message_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'completed', 'failed', 'paused')),
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS agent_runs (
+      id TEXT PRIMARY KEY,
+      mission_id TEXT NOT NULL,
+      parent_run_id TEXT,
+      agent_id TEXT NOT NULL,
+      agent_name TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'queued' CHECK(status IN ('queued', 'running', 'completed', 'failed')),
+      input_summary TEXT NOT NULL,
+      output_summary TEXT,
+      messages_json TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS agent_handoffs (
+      id TEXT PRIMARY KEY,
+      mission_id TEXT NOT NULL,
+      from_run_id TEXT,
+      to_agent_id TEXT NOT NULL,
+      to_agent_name TEXT NOT NULL,
+      to_run_id TEXT,
+      status TEXT NOT NULL DEFAULT 'created' CHECK(status IN ('created', 'accepted', 'completed', 'failed')),
+      packet TEXT NOT NULL,
+      result_summary TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
 }
 
 // ---------------------------------------------------------------------------
