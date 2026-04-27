@@ -4,21 +4,54 @@ import { cn } from '@tomu/ui';
 import type { Thread, Message, ContentBlock } from '@tomu/core';
 import { threadsAtom, activeThreadIdAtom, messagesAtom, memoryPanelOpenAtom, usageDashboardOpenAtom, settingsModalOpenAtom } from '../store/atoms';
 import { api } from '../lib/api';
-import type { ChatMessage } from '../types';
+import type { ChatMessage, ToolCallInfo } from '../types';
 
-function toChatMessage(m: Message): ChatMessage {
-  const content =
-    typeof m.content === 'string'
-      ? m.content
-      : (m.content as ContentBlock[]).filter((b) => b.type === 'text' && b.text).map((b) => b.text!).join('\n');
-  return {
-    id: m.id,
-    role: m.role === 'tool' ? 'system' : m.role,
-    content,
-    reasoning: m.reasoning,
-    reasoningState: m.reasoning ? 'done' : undefined,
-    timestamp: m.timestamp,
-  };
+function extractText(content: Message['content']): string {
+  if (typeof content === 'string') return content;
+  return (content as ContentBlock[]).filter((b) => b.type === 'text' && b.text).map((b) => b.text!).join('\n');
+}
+
+function toChatMessages(messages: Message[]): ChatMessage[] {
+  // Build tool_call_id → result content from 'tool' role messages
+  const toolResultMap = new Map<string, string>();
+  for (const m of messages) {
+    if (m.role === 'tool' && m.tool_call_id) {
+      toolResultMap.set(m.tool_call_id, extractText(m.content));
+    }
+  }
+
+  const result: ChatMessage[] = [];
+  for (const m of messages) {
+    // Skip tool messages — their results are merged into the assistant toolCalls below
+    if (m.role === 'tool') continue;
+
+    const chatMessage: ChatMessage = {
+      id: m.id,
+      role: m.role as 'user' | 'assistant' | 'system',
+      content: extractText(m.content),
+      reasoning: m.reasoning,
+      reasoningState: m.reasoning ? 'done' : undefined,
+      timestamp: m.timestamp,
+    };
+
+    if (m.role === 'assistant' && m.tool_calls && m.tool_calls.length > 0) {
+      chatMessage.toolCalls = m.tool_calls.map((tc) => {
+        let args: Record<string, unknown> = {};
+        try { args = JSON.parse(tc.arguments); } catch { /* leave as {} */ }
+        const tcResult = toolResultMap.get(tc.id);
+        return {
+          id: tc.id,
+          name: tc.name,
+          args,
+          result: tcResult,
+          status: tcResult !== undefined ? 'completed' : 'error',
+        } as ToolCallInfo;
+      });
+    }
+
+    result.push(chatMessage);
+  }
+  return result;
 }
 
 function formatRelativeTime(dateStr: string): string {
@@ -116,7 +149,7 @@ export function Sidebar() {
       setActiveThreadId(threadId);
       try {
         const thread = await api.getThread(threadId);
-        setMessages(thread.messages.map(toChatMessage));
+        setMessages(toChatMessages(thread.messages));
       } catch {
         setMessages([]);
       }

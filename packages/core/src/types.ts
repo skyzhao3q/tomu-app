@@ -14,6 +14,12 @@ import type {
   SubAgentSchema,
   ConfigSchema,
   WorkspaceSchema,
+  HandoffPacketSchema,
+  AgentMissionSchema,
+  AgentRunSchema,
+  AgentHandoffSchema,
+  AgentProfileSchema,
+  AgentsConfigSchema,
 } from "./schemas/index.js";
 
 // Thread & messaging
@@ -43,3 +49,13 @@ export type SubAgent = z.infer<typeof SubAgentSchema>;
 // Config
 export type Config = z.infer<typeof ConfigSchema>;
 export type Workspace = z.infer<typeof WorkspaceSchema>;
+
+// Task orchestration
+export type HandoffPacket = z.infer<typeof HandoffPacketSchema>;
+export type AgentMission = z.infer<typeof AgentMissionSchema>;
+export type AgentRun = z.infer<typeof AgentRunSchema>;
+export type AgentHandoff = z.infer<typeof AgentHandoffSchema>;
+
+// Agent profiles
+export type AgentProfile = z.infer<typeof AgentProfileSchema>;
+export type AgentsConfig = z.infer<typeof AgentsConfigSchema>;

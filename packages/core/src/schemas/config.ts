@@ -8,6 +8,8 @@ export const ConfigSchema = z.object({
   embedding_provider_id: z.string().optional(),
   embedding_model_id: z.string().optional(),
   agent_max_iterations: z.number().int().positive().default(25),
+  agents_enabled: z.boolean().default(true),
+  agents_allow_delegation: z.boolean().default(true),
 });
 
 export const WorkspaceSchema = z.object({

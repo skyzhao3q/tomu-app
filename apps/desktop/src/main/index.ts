@@ -3,14 +3,16 @@ import cors from "cors";
 import "./db.js"; // Initialize database and config directory on startup
 import routes from "./routes/index.js";
 import { cleanupStaleMemories } from "./memory.js";
+import { resumeStaleRuns } from "./tasks.js";
+import { seedBuiltInAgents } from "./agents.js";
 
 const app = express();
-const port = Number(process.env.PORT) || 33001;
-const VITE_PORT = Number(process.env.VITE_PORT) || 55173;
+const port = Number(process.env.PORT) || 33002;
+const vitePort = Number(process.env.VITE_PORT) || 55174;
 
 app.use(
   cors({
-    origin: [`http://localhost:${VITE_PORT}`],
+    origin: [`http://localhost:${vitePort}`],
     credentials: true,
     allowedHeaders: ["Content-Type", "Authorization"],
   }),
@@ -30,10 +32,19 @@ app.use((req, res, next) => {
 
 app.use("/api", routes);
 
+// Seed built-in agent profiles on first boot
+seedBuiltInAgents();
+
 // Cleanup stale temporary memories on startup
 const removed = cleanupStaleMemories();
 if (removed > 0) {
   console.log(`Cleaned up ${removed} stale temporary memories`);
+}
+
+// Resume any agent runs that were interrupted before the last shutdown
+const resumed = resumeStaleRuns();
+if (resumed > 0) {
+  console.log(`[startup] Resumed ${resumed} interrupted agent run(s)`);
 }
 
 app.listen(port, () => {

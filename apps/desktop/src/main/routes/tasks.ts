@@ -5,6 +5,7 @@ import {
   listTasks,
   deleteTask,
   getMission,
+  listMissions,
   getMissionsByThread,
   getRunsByMission,
   getHandoffsByMission,
@@ -15,21 +16,28 @@ import type { HandoffPacket } from "../tasks.js";
 const router: RouterType = Router();
 
 // ---------------------------------------------------------------------------
-// Tasks (legacy sub-agent API)
+// Tasks (sub-agent spawning API)
 // ---------------------------------------------------------------------------
 
 // Spawn a new sub-agent task
 router.post("/tasks", (req, res) => {
-  const { subagent_type, agent_id, type: rawType, prompt, handoff, mission_id, parent_run_id } =
-    req.body as {
-      subagent_type?: string;
-      agent_id?: string;
-      type?: string;
-      prompt?: string;
-      handoff?: HandoffPacket;
-      mission_id?: string;
-      parent_run_id?: string;
-    };
+  const {
+    subagent_type,
+    agent_id,
+    type: rawType,
+    prompt,
+    handoff,
+    mission_id,
+    parent_run_id,
+  } = req.body as {
+    subagent_type?: string;
+    agent_id?: string;
+    type?: string;
+    prompt?: string;
+    handoff?: HandoffPacket;
+    mission_id?: string;
+    parent_run_id?: string;
+  };
   const effectiveType = agent_id ?? subagent_type ?? rawType;
 
   if (!effectiveType || !prompt) {
@@ -52,7 +60,7 @@ router.post("/tasks", (req, res) => {
   }
 });
 
-// List all tasks
+// List all tasks (from DB — persists across restarts)
 router.get("/tasks", (_req, res) => {
   res.json(listTasks());
 });
@@ -81,14 +89,14 @@ router.delete("/tasks/:id", (req, res) => {
 // Missions
 // ---------------------------------------------------------------------------
 
-// Get missions for a thread
+// List all missions, optionally filtered by thread_id
 router.get("/missions", (req, res) => {
   const { thread_id } = req.query as { thread_id?: string };
-  if (!thread_id) {
-    res.status(400).json({ error: "thread_id query param is required" });
-    return;
+  if (thread_id) {
+    res.json(getMissionsByThread(thread_id));
+  } else {
+    res.json(listMissions());
   }
-  res.json(getMissionsByThread(thread_id));
 });
 
 // Get a specific mission with its runs and handoffs
@@ -101,6 +109,16 @@ router.get("/missions/:id", (req, res) => {
   const runs = getRunsByMission(mission.id);
   const handoffs = getHandoffsByMission(mission.id);
   res.json({ mission, runs, handoffs });
+});
+
+// List runs for a mission
+router.get("/missions/:id/runs", (req, res) => {
+  const mission = getMission(req.params.id);
+  if (!mission) {
+    res.status(404).json({ error: "Mission not found" });
+    return;
+  }
+  res.json(getRunsByMission(mission.id));
 });
 
 export default router;

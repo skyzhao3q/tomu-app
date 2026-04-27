@@ -119,7 +119,7 @@ router.get("/skills/search", (req, res) => {
   const q = (req.query.q as string ?? "").toLowerCase();
   const skills = loadAllSkills();
   const results = q
-    ? skills.filter((s) => s.manifest.name.toLowerCase().includes(q) || s.manifest.description.toLowerCase().includes(q))
+    ? skills.filter((s) => s.manifest.name.toLowerCase().includes(q) || (s.manifest.description ?? "").toLowerCase().includes(q))
     : skills;
   res.json(results);
 });

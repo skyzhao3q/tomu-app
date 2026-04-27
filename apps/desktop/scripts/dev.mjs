@@ -12,8 +12,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const desktopRoot = path.resolve(__dirname, "..");
 const repoRoot = path.resolve(desktopRoot, "..", "..");
 
-const VITE_PORT = parseInt(process.env.VITE_PORT ?? "55173");
-const EXPRESS_PORT = parseInt(process.env.EXPRESS_PORT ?? "33001");
+const VITE_PORT = parseInt(process.env.VITE_PORT ?? "55174");
+const EXPRESS_PORT = parseInt(process.env.EXPRESS_PORT ?? "33002");
 
 const children = [];
 
@@ -125,6 +125,6 @@ try {
 // Suppress DevTools-internal noise (Autofill CDP, VE context errors from devtools:// URLs)
 launch("electron", "npx", ["electron", "."], {
   cwd: desktopRoot,
-  env: { ...process.env, VITE_PORT: String(VITE_PORT), EXPRESS_PORT: String(EXPRESS_PORT) },
+  env: { ...process.env, EXPRESS_PORT: String(EXPRESS_PORT), VITE_PORT: String(VITE_PORT) },
   stderrFilter: (line) => line.includes("devtools://devtools/bundled"),
 });
