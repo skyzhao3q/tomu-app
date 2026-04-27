@@ -27,6 +27,7 @@ import { registerMsg } from "./commands/msg.js";
 import { registerSing } from "./commands/sing.js";
 import { registerEmotion } from "./commands/emotion.js";
 import { registerBrowser } from "./commands/browser.js";
+import { registerSend } from "./commands/send.js";
 import { ApiError, ConnectionError } from "./lib/errors.js";
 
 function wrapAction(fn: (...args: unknown[]) => Promise<void>) {
@@ -94,6 +95,7 @@ export function createProgram(): Command {
   registerSing(program);
   registerEmotion(program);
   registerBrowser(program);
+  registerSend(program);
 
   // Wrap all command actions with error handling
   wrapCommands(program);

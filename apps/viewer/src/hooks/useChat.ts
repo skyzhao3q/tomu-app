@@ -11,6 +11,34 @@ import {
 import { api } from '../lib/api';
 import type { ChatMessage, ToolCallInfo } from '../types';
 
+interface ContentBlock {
+  type: string;
+  image_url?: string;
+  text?: string;
+}
+
+function mergeServerImages(
+  localMessages: ChatMessage[],
+  serverMessages: Array<{ id: string; role: string; content: unknown; timestamp?: string }>,
+): ChatMessage[] {
+  const imageMessages = serverMessages
+    .filter((m) => m.role === 'assistant' && Array.isArray(m.content))
+    .filter((m) => (m.content as ContentBlock[]).some((b) => b.type === 'image'))
+    .map((m) => ({
+      id: m.id,
+      role: 'assistant' as const,
+      content: '',
+      images: (m.content as ContentBlock[])
+        .filter((b) => b.type === 'image' && b.image_url)
+        .map((b) => b.image_url!),
+      timestamp: m.timestamp ?? new Date().toISOString(),
+    }));
+
+  const localIds = new Set(localMessages.map((m) => m.id));
+  const newMessages = imageMessages.filter((m) => !localIds.has(m.id));
+  return newMessages.length > 0 ? [...localMessages, ...newMessages] : localMessages;
+}
+
 export function useChat() {
   const [messages, setMessages] = useAtom(messagesAtom);
   const [isLoading, setIsLoading] = useAtom(isLoadingAtom);
@@ -141,7 +169,13 @@ export function useChat() {
                 } else if (type === 'text_delta' || parsed.delta?.content) {
                   const deltaText = parsed.text ?? parsed.delta?.content ?? '';
                   accumulatedText += deltaText;
-                  updateAssistant();
+                  setMessages((prev) =>
+                    prev.map((m) =>
+                      m.id === assistantId
+                        ? { ...m, content: accumulatedText, toolCalls: [...toolCalls], contentState: 'streaming' }
+                        : m,
+                    ),
+                  );
                 } else if (type === 'tool_call_start') {
                   toolCalls = [
                     ...toolCalls,
@@ -161,13 +195,17 @@ export function useChat() {
                   );
                   updateAssistant();
                 } else if (type === 'completion' || type === 'done') {
-                  if (accumulatedReasoning) {
-                    setMessages((prev) =>
-                      prev.map((m) =>
-                        m.id === assistantId ? { ...m, reasoningState: 'done' } : m,
-                      ),
-                    );
-                  }
+                  setMessages((prev) =>
+                    prev.map((m) =>
+                      m.id === assistantId
+                        ? {
+                            ...m,
+                            contentState: 'done',
+                            ...(accumulatedReasoning ? { reasoningState: 'done' } : {}),
+                          }
+                        : m,
+                    ),
+                  );
                   if (parsed.thread_id && !activeThreadId) {
                     setActiveThreadId(parsed.thread_id);
                   }
@@ -214,6 +252,13 @@ export function useChat() {
         abortRef.current = null;
         setIsLoading(false);
         api.getThreads().then(setThreads).catch(() => {});
+
+        // Re-fetch messages to pick up any images sent via send-photo
+        if (activeThreadId) {
+          api.getThreadMessages(activeThreadId).then((serverMessages) => {
+            setMessages((prev) => mergeServerImages(prev, serverMessages));
+          }).catch(() => {});
+        }
       }
     },
     [

@@ -6,10 +6,11 @@ import { cleanupStaleMemories } from "./memory.js";
 
 const app = express();
 const port = Number(process.env.PORT) || 33001;
+const VITE_PORT = Number(process.env.VITE_PORT) || 55173;
 
 app.use(
   cors({
-    origin: ["http://localhost:55173"],
+    origin: [`http://localhost:${VITE_PORT}`],
     credentials: true,
     allowedHeaders: ["Content-Type", "Authorization"],
   }),
