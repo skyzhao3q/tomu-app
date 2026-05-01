@@ -62,29 +62,30 @@ export type StreamEvent =
 ---
 
 ## 4. 状態管理と更新ロジック (State Management & Logic)
-Zustand（または同等のストア）を用いて、インラインツールとグローバルエージェントの状態を管理する。
+**Jotai** (`atom` / `useAtom`) を用いて、インラインツールとグローバルエージェントの状態を管理する。実装は `apps/viewer/src/store/atoms.ts` に集約されている。
 
 ### 4.1. Message Store (Tools / Skills用)
-チャットメッセージの配列を管理するストアに、`toolCalls` をネストして保持する。
+チャットメッセージの配列を管理する `messagesAtom` に、`toolCalls` をネストして保持する。
+```typescript
+// apps/viewer/src/store/atoms.ts
+export const messagesAtom = atom<ChatMessage[]>([]);
+```
 - **データ更新ロジック:**
-  - `CALL_START`: 対象メッセージの `toolCalls` 配列に新規オブジェクト（status: `running`）を追加。
+  - `CALL_START`: 対象メッセージの `toolCalls` 配列に新規オブジェクト（status: `running`）を追加。`useSetAtom(messagesAtom)` で immutable update する。
   - `CALL_SUCCESS`/`CALL_FAILED`: 該当IDを検索し、`status`を更新、`output` / `error` をセット。
 
 ### 4.2. Global Agent Store (Crew Agents用)
-アプリケーション全体のどこからでもアクセスできるAgent専用のストア。
+アプリケーション全体のどこからでもアクセスできるAgent専用の atoms。
 ```typescript
-interface AgentStore {
-  tasks: Record<string, AgentTask>; // taskIdをキーにしたMap形式
-  isWindowOpen: boolean;
-  
-  // Actions
-  upsertTask: (task: Partial<AgentTask> & { taskId: string }) => void;
-  appendLog: (taskId: string, chunk: string) => void;
-  toggleWindow: (isOpen?: boolean) => void;
-}
+// apps/viewer/src/store/atoms.ts
+export const agentTasksAtom = atom<Record<string, AgentTask>>({});
+export const agentWindowOpenAtom = atom<boolean>(false);
 ```
+- **`agentTasksAtom`**: `taskId` をキーにした Map 形式の atom。`useSetAtom` で immutable に更新する。
+- **`agentWindowOpenAtom`**: フローティングウィンドウの開閉状態 (`isWindowOpen` に相当)。
 - **データ更新ロジック:**
-  - `appendLog`: 文字列の結合ではなく、配列 `logs.push(chunk)` を行う。UI側で行ごとにレンダリングしやすくするため。
+  - `upsertTask`: `set(agentTasksAtom, prev => ({ ...prev, [task.taskId]: { ...prev[task.taskId], ...task } }))` パターン。
+  - `appendLog`: `logs: [...prev.logs, chunk]` で配列追加。文字列結合ではなく配列追加で行ごとのレンダリングを容易にする。
 
 ---
 
@@ -113,11 +114,11 @@ interface AgentStore {
 バックグラウンド実行を監視するためのグローバルUI。
 
 1. **フローティングボタン表示ロジック (`AgentFloatingButton`):**
-   - `AgentStore.tasks` のオブジェクトキー配列数が 1 以上の場合のみ画面右下に表示（タスクがゼロなら非表示）。
-   - `tasks` の中に `status === 'running'` のタスクが存在する場合、アイコンの周囲にPulse（波紋）アニメーションを付与。
+   - `agentTasksAtom` のオブジェクトキー配列数が 1 以上の場合のみ画面右下に表示（タスクがゼロなら非表示）。
+   - `agentTasksAtom` の中に `status === 'running'` のタスクが存在する場合、アイコンの周囲にPulse（波紋）アニメーションを付与。
    - `status === 'success'` 状態のタスクのみになればアニメーションを停止し、一定時間（例: 5分）経過後、またはユーザーが閉じる操作をしたタスクはストアから削除可能にする。
 2. **ステータスウィンドウ展開ロジック (`AgentStatusWindow`):**
-   - フローティングボタンクリックで開閉（`isWindowOpen`）。
+   - フローティングボタンクリックで開閉（`agentWindowOpenAtom`）。
    - 展開時、各タスクがアコーディオン形式のカードとしてリスト表示される。
    - **`LogStreamViewer`（ターミナル風UI）**:
      - タスクが展開されている間、`logs` 配列を黒背景の等幅フォント（monospace）領域にレンダリングする。

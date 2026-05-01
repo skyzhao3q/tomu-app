@@ -1,14 +1,14 @@
 # tomu - アーキテクチャ設計書
 
-Status: Draft v1
-Date: 2026-03-22
+Status: Draft v2
+Date: 2026-05-01
 
 ---
 
 ## 1. システム全体構成
 
 tomu は **API ファースト（バックエンド主導）** な設計を採用する。
-フロントエンド (React) とバックエンド (Express) は完全に分離され、すべての通信は REST API + SSE/WebSocket で行われる。
+フロントエンド (React) とバックエンド (Express) は完全に分離され、すべての通信は REST API + SSE で行われる。現行実装ではチャットストリームに SSE を使い、設定変更の WebSocket ブロードキャストは未実装。
 
 ### 1.1 レイヤー構成
 
@@ -16,16 +16,16 @@ tomu は **API ファースト（バックエンド主導）** な設計を採�
 ┌─────────────────────────────────────────────────────────┐
 │                  Client Layer (Frontend)                 │
 │  ┌──────────────┐  ┌──────────┐  ┌───────────────────┐  │
-│  │ Desktop UI   │  │ CLI      │  │ External Bots     │  │
-│  │ (React/Vite) │  │ (Bun)    │  │ (Telegram/Discord)│  │
+│  │ Desktop UI   │  │ CLI      │  │ External Tools    │  │
+│  │ (React/Vite) │  │ (tsx)    │  │ (HTTP clients)    │  │
 │  └──────┬───────┘  └────┬─────┘  └────────┬──────────┘  │
 └─────────┼───────────────┼─────────────────┼─────────────┘
           │ HTTP/SSE      │ HTTP            │ Webhook
 ┌─────────▼───────────────▼─────────────────▼─────────────┐
-│              Local API Hub (Express.js :23001)           │
+│              Local API Hub (Express.js :33001/:33002)    │
 │  ┌──────────────────────────────────────────────────┐   │
 │  │                  API Router                       │   │
-│  │  /api/chat  /proxy  /api/providers  /api/skills   │   │
+│  │  /api/chat  /api/providers  /api/skills  /api/tasks│   │
 │  └──────────┬───────────────────────────────────────┘   │
 │  ┌──────────▼───────────────────────────────────────┐   │
 │  │              Core Engine                          │   │
@@ -47,7 +47,7 @@ tomu は **API ファースト（バックエンド主導）** な設計を採�
 │  External AI      │ │       Data Storage                 │
 │  ┌──────────────┐ │ │  ┌──────────┐ ┌──────┐ ┌────────┐ │
 │  │ OpenAI       │ │ │  │ SQLite   │ │ JSON │ │Markdown│ │
-│  │ Anthropic    │ │ │  │+sqlite-vec│ │      │ │        │ │
+│  │ Anthropic    │ │ │  │+FTS/RAG   │ │      │ │        │ │
 │  │ Gemini       │ │ │  └──────────┘ └──────┘ └────────┘ │
 │  │ Ollama       │ │ └───────────────────────────────────┘
 │  └──────────────┘ │
@@ -63,13 +63,13 @@ tomu-app/
 │   │   ├── src/
 │   │   │   ├── main/           # Node.js サーバー (Express)
 │   │   │   │   ├── index.ts    # エントリー・API ルーター
-│   │   │   │   ├── proxy/      # LLM プロキシとコンテキスト合成
-│   │   │   │   ├── agent/      # エージェントループ (Task 委譲)
+│   │   │   │   ├── routes/     # Express API ルート
+│   │   │   │   ├── tasks.ts    # エージェント実行・Task 委譲
+│   │   │   │   ├── agents.ts   # Agent profile DB/seed
 │   │   │   │   └── tools/      # Native Tools (Bash, Read, Write)
-│   │   │   └── preload/        # IPC ブリッジ
+│   │   │   └── electron/       # Electron main/preload/tray
 │   ├── viewer/                 # React UI (Vite SPA)
 │   │   ├── src/
-│   │   │   ├── pages/          # 画面コンポーネント (Chat, Settings)
 │   │   │   ├── components/     # UI コンポーネント (chat, artifact, sidebar)
 │   │   │   ├── hooks/          # React Hooks
 │   │   │   └── store/          # 状態管理 (jotai)
@@ -79,10 +79,10 @@ tomu-app/
 ├── packages/
 │   ├── core/                   # 共通の型定義・ユーティリティ
 │   └── ui/                     # 共通 React コンポーネント (Design System)
-└── resources/
-    ├── bundled-skills/         # Markdown 初期スキル群 (SKILL.md)
-    ├── tts/                    # ローカル音声合成エンジン (Python)
-    └── vendor/                 # 同梱バイナリ (bun, ripgrep)
+└── assets/
+    ├── prompts/                # Base/sub-agent prompts
+    ├── skills/                 # Bundled SKILL.md directories
+    └── tools/                  # Tool documentation loaded by prompts
 ```
 
 ---
@@ -91,16 +91,14 @@ tomu-app/
 
 ### 2.1 Local API Hub (Express.js Server)
 
-**ポート**: `23001` (localhost only)
+**ポート**: CLI 既定は `http://localhost:33001`。Express 単体の既定は `PORT` 未指定時 `33002`。
 **責務**: すべての LLM 通信・ファイル操作・メモリ管理の中央ハブ
 
 #### 主要 API エンドポイント群
 
 | カテゴリ | Method | Endpoint | 説明 |
 |:---------|:-------|:---------|:-----|
-| **Chat** | POST | `/api/chat/completions` | メインエントリー: コンテキスト合成 + プロキシ + エージェントループ |
-| **Proxy** | POST | `/proxy/:providerId/v1/messages` | LLM API パススルー (Anthropic 形式) |
-| **Proxy** | POST | `/proxy/:providerId/v1/responses` | LLM API パススルー (OpenAI 形式) |
+| **Chat** | POST | `/api/chat/completions` | メインエントリー: コンテキスト合成 + エージェントループ |
 | **Threads** | GET/POST/DELETE | `/api/threads[/:id]` | スレッド CRUD |
 | **Threads** | GET | `/api/threads/:id/messages` | メッセージ履歴取得 |
 | **Providers** | GET/POST/PUT/DELETE | `/api/providers[/:id]` | AI プロバイダー管理 |
@@ -109,13 +107,15 @@ tomu-app/
 | **Memory** | POST | `/api/memories/search` | ベクトル類似度検索 |
 | **Memory** | GET/POST/DELETE | `/api/memories[/:id]` | メモリ CRUD |
 | **People** | GET/POST/PUT/DELETE | `/api/people[/:name]` | 人物プロファイル管理 |
-| **Skills** | GET/POST/DELETE | `/api/skills[/:id]` | スキル管理 |
-| **Plugins** | GET/POST/DELETE | `/api/plugins[/:id]` | プラグイン管理 |
-| **MCP** | GET/POST/DELETE | `/api/mcp-servers[/:id]` | MCP サーバー管理 |
-| **Tasks** | GET | `/api/agents/tasks/:taskId` | サブエージェント状態取得 |
-| **Workspaces** | GET/POST/DELETE | `/api/workspaces[/:id]` | ワークスペース管理 |
+| **Skills** | GET/DELETE | `/api/skills[/:id]` | スキル管理 |
+| **Skills** | POST | `/api/skills/install` | スキルインストール |
+| **Plugins** | GET/POST/DELETE | `/api/plugins[/:name]` | プラグイン管理 |
+| **MCP** | GET/POST/PUT/DELETE | `/api/mcp/servers[/:name]` | MCP サーバー管理 |
+| **Tasks** | GET/POST/DELETE | `/api/tasks[/:id]` | サブエージェント状態取得・起動 |
+| **Missions** | GET | `/api/missions[/:id]` | 永続化ミッション状態 |
+| **Workspaces** | GET/PUT | `/api/workspaces[/:id]` | ワークスペース管理 |
 | **Settings** | GET/PUT | `/api/settings` | アプリ設定 |
-| **Chrome** | POST | `/api/chrome-relay/*` | Chrome ブラウザ操作 |
+| **Browser** | GET/POST | `/api/browser/*` | ブラウザ操作 |
 
 ### 2.2 Core Engine
 
@@ -127,10 +127,11 @@ LLM にリクエストを送る直前に、以下を動的に結合してシス�
 1. Base Instructions (ハードコード) ─── 人格の「憲法」
 2. SOUL.md (Identity) ────────────── エージェントの性格・外見・ルール
 3. USER.md (User Profile) ─────────── ユーザー情報
-4. MEMORY.md + Daily Notes ────────── 長期記憶 + 今日/昨日のメモ
-5. Vector RAG Results ─────────────── sqlite-vec からの関連記憶 (top-5)
-6. Matched Skills ─────────────────── 入力に関連する SKILL.md のマニュアル
-7. Tool Schemas ───────────────────── 利用可能な Native Tools の JSON Schema
+4. People Profile ─────────────────── 会話相手にマッチした ~/.config/tomu/people/<name>.md (context.ts が注入)
+5. MEMORY.md + Daily Notes ────────── 長期記憶 + 今日/昨日のメモ
+6. Vector RAG Results ─────────────── memory_embeddings (vec0) からの関連記憶
+7. Matched Skills ─────────────────── 入力に関連する SKILL.md のマニュアル
+8. Tool Schemas ───────────────────── 利用可能な Native Tools の JSON Schema
 ```
 
 #### 2.2.2 Agentic Loop (エージェントループ)
@@ -166,7 +167,7 @@ LLM が呼び出せるツール群:
 
 | ツール名 | 実装方法 | 説明 |
 |:---------|:---------|:-----|
-| `Bash` | node-pty | 永続的疑似ターミナルでのコマンド実行 |
+| `Bash` | child_process | シェルコマンド実行 |
 | `Read` | fs.readFileSync | ローカルファイル読み取り |
 | `Write` | fs.writeFileSync | ローカルファイル書き込み |
 | `Edit` | string replace | ファイル内テキスト置換 |
@@ -174,11 +175,9 @@ LLM が呼び出せるツール群:
 | `Grep` | ripgrep | ファイル内容検索 |
 | `Task` | sub-agent spawn | バックグラウンドサブエージェント起動 |
 | `TaskOutput` | polling | サブエージェント結果取得 |
-| `BrowserOpen` | Playwright | ヘッドレスブラウザ起動 |
-| `BrowserClick` | Playwright | ブラウザ要素クリック |
-| `WebSearch` | external API | Web 検索 |
-| `WebFetch` | HTTP + Turndown | Web ページ取得 (Markdown 変換) |
 | `widgetRenderer` | iframe srcdoc | チャット内 HTML/JS ウィジェット生成 |
+| `pieChart` | SVG widget | 円グラフウィジェット生成 |
+| `barChart` | SVG widget | 棒グラフウィジェット生成 |
 
 ### 2.4 Sub-Agent Orchestrator
 
@@ -188,10 +187,15 @@ LLM が呼び出せるツール群:
 |:-----|:-------------------|:-----------|
 | `general-purpose` | 汎用タスク処理 | 全ツール |
 | `coder` | コーディング専門 | Bash, Read, Write, Edit, Glob, Grep |
-| `Explore` | コードベース調査 | Read, Glob, Grep |
-| `Plan` | 設計・計画立案 | Read, Glob, Grep |
-| `tomu-guide` | アプリ使用ガイド | Read, WebFetch |
-| `tomu-operator` | 設定操作 | Read, Write, Bash |
+| `explore` | コードベース調査 | Read, Glob, Grep, Bash |
+| `plan` | 設計・計画立案 | Read, Glob, Grep |
+| `tomu-guide` | アプリ使用ガイド | Read, Glob, Grep |
+| `tomu-operator` | 設定操作 | Read, Glob, Grep |
+| `product-manager` | 要件・計画・委譲 | Read, Glob, Grep, Task, TaskOutput |
+| `designer` | UX/UI 設計 | Read, Glob, Grep, Task, TaskOutput |
+| `developer` | 実装・検証 | Bash, Read, Write, Edit, Glob, Grep, Task, TaskOutput |
+| `researcher` | 調査 | Read, Glob, Grep |
+| `operator` | 運用 | Bash, Read, Write |
 
 #### ライフサイクル
 
@@ -211,7 +215,7 @@ Started → Running → Completed / Failed
 
 | ストレージ | 用途 | 特性 |
 |:-----------|:-----|:-----|
-| **SQLite** (+ sqlite-vec, fts5) | ベクトル検索, 全文検索, 使用量ログ, プラグイン管理 | 高速クエリ, トランザクション |
+| **SQLite** (+ fts5) | ベクトル検索, 全文検索, 使用量ログ, プラグイン管理 | 高速クエリ, トランザクション |
 | **JSON** | アプリ設定, 進行中の会話状態 | ステートレス, メモリにロード |
 | **Markdown/YAML** | Identity, Skills, People, Threads | LLM が直接読み書き, 人間可読 |
 
@@ -222,12 +226,12 @@ Started → Running → Completed / Failed
 CREATE TABLE memories (
     id TEXT PRIMARY KEY,
     content TEXT,
-    type TEXT,          -- 'message', 'note'
+    type TEXT,          -- 'message', 'note', 'temporary'
     metadata TEXT,      -- JSON
     thread_id TEXT
 );
 
--- sqlite-vec 仮想テーブル (1536次元)
+-- Vector similarity search (sqlite-vec vec0 virtual table)
 CREATE VIRTUAL TABLE memory_embeddings USING vec0(
     memory_id TEXT PRIMARY KEY,
     embedding FLOAT[1536]
@@ -235,9 +239,8 @@ CREATE VIRTUAL TABLE memory_embeddings USING vec0(
 
 -- 全文検索 (FTS5)
 CREATE VIRTUAL TABLE messages_fts USING fts5(
-    message_id,
-    thread_id UNINDEXED,
-    content
+    content,
+    thread_id UNINDEXED
 );
 
 -- トークン使用量
@@ -307,25 +310,22 @@ CREATE TABLE mcp_oauth_tokens (...);
 |:------|:-----------|
 | デスクトップ外殻 | Electron |
 | UI フレームワーク | React 18 + Vite |
-| スタイリング | Tailwind CSS + Radix UI |
+| スタイリング | Tailwind CSS + `@tomu/ui` |
 | 状態管理 | jotai |
-| AI/エージェント統合 | `@anthropic-ai/sdk`, `openai`, `@modelcontextprotocol/sdk` |
-| 国際化 | i18next + react-i18next |
-| ローカルサーバー | Express.js + ws (WebSocket) |
-| バックグラウンドシェル | node-pty (疑似ターミナル) |
-| ベクトル DB | sqlite-vec (SQLite 拡張) |
+| AI/エージェント統合 | Vercel AI SDK (`ai`, `@ai-sdk/openai`, `@ai-sdk/anthropic`, `@ai-sdk/google`) |
+| ローカルサーバー | Express.js |
+| バックグラウンドシェル | Node.js child process |
+| ベクトル DB | sqlite-vec 仮想テーブル (`memory_embeddings`, FLOAT[1536]) |
 | 全文検索 | fts5 (SQLite 拡張) |
-| ブラウザ自動化 | Playwright |
-| ファイルパース | gray-matter, mammoth (Word), react-pdf, xlsx, turndown |
-| ビルド・バンドル | esbuild, bun |
-| エラー追跡 | Sentry (@sentry/electron, @sentry/react) |
+| ファイルパース | gray-matter |
+| ビルド・バンドル | TypeScript, tsx, Vite, Turbo |
 
 ---
 
 ## 5. 開発フェーズ計画
 
 ### Phase 1: 基礎インフラ (Local API Hub)
-- Express サーバー起動 (port 23001)
+- Express サーバー起動 (CLI 既定 port 33001 / 単体既定 port 33002)
 - プロバイダー登録・API キー管理
 - LLM プロキシ (OpenAI/Anthropic パススルー)
 - **マイルストーン**: curl/Postman から AI とチャットできる
@@ -336,7 +336,7 @@ CREATE TABLE mcp_oauth_tokens (...);
 
 ### Phase 3: 手足の獲得 (Agentic Loop + Tools)
 - tool_calls のインターセプトとループ実装
-- Bash (node-pty) / Read / Write / Edit / Glob / Grep ツール実装
+- Bash / Read / Write / Edit / Glob / Grep ツール実装
 - **マイルストーン**: ターミナルから指示 → AI が自律的にファイル操作
 
 ### Phase 4: 拡張性 (Skills + Sub-Agents)
@@ -344,7 +344,7 @@ CREATE TABLE mcp_oauth_tokens (...);
 - Task / TaskOutput ツールとサブエージェントオーケストレーション
 
 ### Phase 5: 記憶の永続化 (Vector DB + RAG)
-- sqlite-vec セットアップと記憶保存
+- memory_embeddings (sqlite-vec) セットアップと記憶保存
 - Hidden Prompt による自動記憶抽出・クリーンアップ
 - Daily Notes / MEMORY.md の自動読み込み
 

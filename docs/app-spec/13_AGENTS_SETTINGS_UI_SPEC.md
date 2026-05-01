@@ -1,8 +1,8 @@
 # tomu - Agents & Crew Settings UI Spec (FULL Version)
 
-Status: Final v1.1
-Date: 2026-04-06
-Based on: ALma API Spec (`agents` configuration) & Enterprise Multi-Agent Architecture
+Status: Draft v1.2
+Date: 2026-05-01
+Source of truth reviewed: `apps/desktop/src/main/agents.ts`, `apps/desktop/src/main/routes/agents.ts`, `packages/core/src/schemas/agent.ts`, `apps/viewer/src/components/SettingsModal.tsx`
 
 ---
 
@@ -15,7 +15,7 @@ Tomu APPの設定（Settings）内に、自律型エージェントの組織（C
 ## 2. データ構造と初期シード (Data Model & Seed Data)
 
 ### 2.1 型定義 (Type Definitions)
-設定データは `config.agents` 配列として一元管理される。
+グローバル設定は `config.json` の `agents_enabled` / `agents_allow_delegation` に保存され、プロファイル本体は SQLite の `agent_profiles` テーブルで管理される。API レスポンスでは `AgentsConfig` として合成される。
 
 ```typescript
 interface AgentsConfig {
@@ -28,7 +28,7 @@ interface AgentProfile {
   id: string;             // [PK] a-z, 0-9, hyphen のみ許容 (例: "product-manager")
   name: string;           // 表示名 (Max: 30文字)
   category: 'design' | 'product' | 'engineering' | 'research' | 'operations' | 'custom';
-  executionMode: 'general-purpose' | 'Plan' | 'coder' | 'tomu-operator' | 'Explore' | 'alma-guide' | 'statusline-setup';
+  executionMode: 'general-purpose' | 'plan' | 'coder' | 'tomu-operator' | 'explore' | 'tomu-guide' | 'statusline-setup';
   enabled: boolean;       // 稼働状態
   builtIn: boolean;       // true の場合は削除・ID変更・executionMode変更不可
   color: string;          // テーマカラー (HEX形式: "#FFFFFF")
@@ -41,15 +41,15 @@ interface AgentProfile {
 ```
 
 ### 2.2 組み込みシードデータ (Built-in Seed Data)
-システム初回起動時に投入・保護される必須の5エージェント。プロンプトは「`docs/app-spec/12_TASK_ORCHESTRATION_SPEC.md` の第7章」で定義された **FULL Version** のプロンプトを初期値として投入する。
+システム初回起動時に投入・保護される必須の5エージェント。プロンプトは `assets/prompts/subagents/<id>.md` から読み込まれる。
 
 | ID | Name | Category | Execution Mode | Color | Focus (Tags) | Delegates To | Default Prompt |
 |:---|:-----|:---------|:---------------|:------|:-------------|:-------------|:---------------|
-| `product-manager` | Product Manager | `product` | `Plan` | `#8B5CF6` (Purple) | requirements, scope, roadmap | `designer`, `developer`, `researcher`, `operator` | (See 12_TASK_ORCHESTRATION_SPEC.md 7.1) |
-| `designer` | Designer | `design` | `general-purpose` | `#EC4899` (Pink) | ux, layout, microcopy | `developer`, `researcher`, `product-manager` | (See 12_TASK_ORCHESTRATION_SPEC.md 7.2) |
-| `developer` | Developer | `engineering` | `coder` | `#3B82F6` (Blue) | feature, bugfix, refactor | `operator`, `researcher`, `product-manager` | (See 12_TASK_ORCHESTRATION_SPEC.md 7.3) |
-| `researcher` | Researcher | `research` | `general-purpose` | `#10B981` (Green) | facts, reconnaissance | `product-manager`, `designer`, `developer` | (See 12_TASK_ORCHESTRATION_SPEC.md 7.4) |
-| `operator` | Operator | `operations` | `tomu-operator` | `#F59E0B` (Orange) | settings, environment | `developer`, `product-manager` | (See 12_TASK_ORCHESTRATION_SPEC.md 7.5) |
+| `product-manager` | Product Manager | `product` | `general-purpose` | `#6366f1` | Requirements, Planning, Delegation, Scoping, Acceptance | `designer`, `developer`, `researcher`, `operator` | `assets/prompts/subagents/product-manager.md` |
+| `designer` | Designer | `design` | `plan` | `#ec4899` | UX/UI, Components, Interaction States, Accessibility, Design Spec | none | `assets/prompts/subagents/designer.md` |
+| `developer` | Developer | `engineering` | `coder` | `#22c55e` | Implementation, Code, Testing, Bash, File Editing | none | `assets/prompts/subagents/developer.md` |
+| `researcher` | Researcher | `research` | `explore` | `#f59e0b` | Research, Analysis, Reports, Information Gathering | none | `assets/prompts/subagents/researcher.md` |
+| `operator` | Operator | `operations` | `tomu-operator` | `#14b8a6` | System Ops, Bash, File Management | none | `assets/prompts/subagents/operator.md` |
 
 ---
 
@@ -110,8 +110,8 @@ interface AgentProfile {
 2. **モデルフォールバックの解決順序**:
    エージェントが呼び出された際、以下の順序でLLMを決定する。
    1. `profile.model` (エージェント個別設定)
-   2. `config.toolModel.subagentModel` (サブエージェント全体のデフォルト)
-   3. `config.toolModel.defaultModel` (システム全体のデフォルト)
+   2. `config.default_provider_id` + `config.default_model_id`
+   3. プロバイダーが持つ最初のモデル
 3. **無効化(Disabled)の波及効果**:
    - エージェントAが「無効(OFF)」にされた場合、エージェントBの `delegatesTo` にAが含まれていても、プロンプト合成時に**Aを委譲先リストから除外してLLMに渡す**。これにより「LLMが存在しない/無効なエージェントを呼ぼうとしてエラーになる」ことを防ぐ。
 
@@ -127,9 +127,9 @@ You are authorized to delegate tasks to the following specialists using the Task
 (※ delegatesTo に設定されたエージェントの name と summary を自動で列挙)
 ```
 
-### 4.3 ライブ同期 (WebSocket / Store)
-- UIでの変更（保存）は即座にバックエンドの `config.json` (または DB) に反映され、WebSocketを通じて他の接続クライアントにブロードキャストされる。
-- これにより、チャット画面側で「呼び出せるエージェントのリスト (`/`コマンド等でのサジェスト)」がリアルタイムに更新される。
+### 4.3 ライブ同期
+- UIでの変更（保存）は即座にバックエンドの `config.json` または `agent_profiles` テーブルに反映される。
+- 現行実装では WebSocket ブロードキャストは未実装。クライアントは API 再取得で最新状態を反映する。
 
 ---
 
@@ -151,20 +151,23 @@ You are authorized to delegate tasks to the following specialists using the Task
 ### 6.1 `GET /api/settings/agents`
 - **Response**: `AgentsConfig` オブジェクト全体を返す。
 
-### 6.2 `PUT /api/settings/agents`
+### 6.2 `GET /api/settings/agents/profiles/:id`
+- **Response**: 指定 ID の `AgentProfile` を返す。存在しない場合は `404 Not Found`。
+
+### 6.3 `PUT /api/settings/agents`
 - **Request**: `{ enabled: boolean, allowSubagentDelegation: boolean }`
 - **Description**: グローバルトグルの更新。
 
-### 6.3 `POST /api/settings/agents/profiles`
+### 6.4 `POST /api/settings/agents/profiles`
 - **Request**: `Omit<AgentProfile, "builtIn">` (builtInはバックエンドで強制的にfalse)
-- **Response**: `201 Created` / `400 Bad Request` (ID重複時)
+- **Response**: `201 Created` / `400 Bad Request` (バリデーションエラー) / `409 Conflict` (ID重複時)
 
-### 6.4 `PUT /api/settings/agents/profiles/:id`
+### 6.5 `PUT /api/settings/agents/profiles/:id`
 - **Request**: `Partial<AgentProfile>`
 - **Description**: `builtIn: true` のエージェントに対して `id`, `executionMode` を変更しようとした場合は `403 Forbidden` を返す。
 
-### 6.5 `DELETE /api/settings/agents/profiles/:id`
+### 6.6 `DELETE /api/settings/agents/profiles/:id`
 - **Description**: カスタムエージェントの削除。`builtIn: true` の場合は `403 Forbidden` を返す。関連する `agent_runs` 履歴は残すが、以後の呼び出しは不可となる。
 
-### 6.6 `POST /api/settings/agents/profiles/:id/reset`
+### 6.7 `POST /api/settings/agents/profiles/:id/reset`
 - **Description**: 組み込みエージェントのプロンプトと設定を、初期のシードデータ状態（FULL Versionプロンプト）に戻す。

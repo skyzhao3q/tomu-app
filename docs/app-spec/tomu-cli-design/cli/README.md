@@ -1,55 +1,107 @@
-# Tomu CLI (Protan) 開発ガイド for Coding Agents
+# Tomu CLI 開発ガイド for Coding Agents
 
-このディレクトリ (\`alma-prj/alma-src/cli/\`) には、AlmaのオリジナルCLI (\`alma\` コマンド) の難読化されたソースコードを**コマンド（機能）ごとに完全に分割・抽出した生データ**が格納されています。
-
-AI（Coder Agent 等）が **「Tomu CLI (\`tomu\` コマンド)」** を一から開発・再構築する際、このディレクトリ内のソースコードをリファレンス（正解のロジック）として活用してください。
+このドキュメントは、`apps/cli/src/` に実装済みの **tomu CLI (`tomu` コマンド)** の開発・拡張を行うためのガイドです。
 
 ---
 
-## 1. 📂 ディレクトリ構成と役割
+## 1. ディレクトリ構成
 
-| フォルダ/ファイル | 役割と活用方法 |
-| :--- | :--- |
-| **\`index.js\`** | CLI のエントリーポイント。引数のパース（\`process.argv.slice(2)\`）と、各コマンドへのルーティングの初期ロジックが書かれています。これを参考に、Commander.js や yargs 等を用いたモダンなCLIルーターを設計してください。 |
-| **\`commands/*.js\`** | \`status\`, \`config\`, \`chat\`, \`skill\` など全45種類のサブコマンドの生の実行ブロックです。**「このコマンドはどういうAPIエンドポイントを叩いているか」「何のファイルを書き換えているか」の完全な答え**がここにあります。 |
-| **\`utils/api.js\`** | ローカルAPI（Expressサーバー: \`http://localhost:23001\`）と通信するための \`fetch\` ラッパーです。CLIにビジネスロジックを持たせず、このラッパー経由でバックエンドに処理を委譲する Thin Wrapper パターンの実装例として使ってください。 |
-
----
-
-## 2. 🤖 Coding Agent への指示（Prompting Guide）
-
-AI（Coder Agent）に \`tomu\` CLI の特定のコマンド（例: \`tomu memory\`）を実装させる際は、以下のフォーマットでプロンプトを与えると最も正確でバグのないコードが生成されます。
-
-### 📝 依頼プロンプトのテンプレート
-```markdown
-あなたは Tomu CLI を TypeScript で開発するエンジニアエージェントです。
-今回は `tomu <command_name>` コマンドを実装してください。
-
-実装にあたり、Almaのオリジナルコードである以下のファイルを `Read` ツールで読み込み、そこで行われている「API呼び出し」や「ファイル操作」のロジックを完全に移植（TypeScript化）してください。
-
-- オリジナルロジック: `alma-prj/alma-src/cli/commands/<command_name>.js`
-- 通信ユーティリティ: `alma-prj/alma-src/cli/utils/api.js` (参考用)
-
-**【実装のルール】**
-1. CLIコマンド自体に複雑な検索アルゴリズム等は持たせず、必ずローカルAPI（Express）を叩く Thin Wrapper として実装すること。
-2. エラーハンドリング（APIサーバーが落ちている場合など）を適切に行い、`console.error` でユーザーにわかりやすく伝えること。
-3. 出力はターミナルで読みやすいようにフォーマット（色付け等）すること。
+```
+apps/cli/
+├── package.json        # bin: { "tomu": "./src/index.ts" }
+└── src/
+    ├── index.ts        # エントリーポイント (Commander.js ルーター)
+    ├── api.ts          # fetch ラッパー (Local API サーバーとの通信)
+    └── commands/       # 各コマンドの実装
+        ├── config.ts
+        ├── memory.ts
+        ├── providers.ts
+        ├── threads.ts
+        └── ...
 ```
 
 ---
 
-## 3. 実装時の注意点 (Implementation Focus)
+## 2. Coding Agent への指示（Prompting Guide）
 
-### 3.1 🌐 API 通信系コマンドの移植
-- **例**: \`config.js\`, \`memory.js\`, \`threads.js\`, \`provider.js\`
-- これらはUIと同じように、バックエンドの Express サーバー (\`localhost:23001\`) を \`fetch\` するだけです。抽出されたコードを見て、「どの URL パスに、どんな Method と Body でリクエストを送っているか」を正確に TypeScript で型定義して移植してください。
+新しいサブコマンドを実装させる際は、以下のフォーマットでプロンプトを与えてください。
 
-### 3.2 📂 ローカルファイル操作系コマンドの移植
-- **例**: \`soul.js\`, \`user.js\`, \`travel.js\`
-- これらはAPIを叩かず、CLI が直接 Node.js の \`fs\` モジュールを使って \`~/.config/tomu/\` 配下のファイル（Markdown や JSON）を読み書きしています。
-- Coder Agent に移植させる際は、ファイルのパス解決 (`path.join(os.homedir(), '.config', 'tomu', ...)`) を正しく模倣させてください。
+### 依頼プロンプトのテンプレート
 
-### 3.3 💻 OS・シェル実行系コマンドの移植
-- **例**: \`selfie.js\`, \`skill.js\`
-- これらは \`child_process.execSync\` や \`spawn\` を用いて、外部のPythonスクリプトや \`npx\` コマンドをバックグラウンドで実行しています。
-- Coder Agent に移植させる際は、プロセスの実行結果（stdout/stderr）が正しくターミナルに表示されるよう、\`stdio: 'inherit'\` などのオプションを維持させてください。
+```markdown
+あなたは Tomu CLI を TypeScript で開発するエンジニアエージェントです。
+今回は `tomu <command_name>` コマンドを実装してください。
+
+実装にあたり、以下のファイルを `Read` ツールで読み込んでください:
+
+- 既存の類似コマンド: `apps/cli/src/commands/<similar_command>.ts`
+- API ラッパー: `apps/cli/src/api.ts`
+- API エンドポイント一覧: `docs/app-spec/07_CLI_AND_API.md`
+
+**実装のルール:**
+1. CLI に複雑なビジネスロジックを持たせず、必ずローカル API を叩く Thin Wrapper として実装すること。
+2. エラーハンドリング（API サーバーが落ちている場合など）を適切に行い、ユーザーにわかりやすく伝えること。
+3. 出力はターミナルで読みやすいようにフォーマットすること。
+```
+
+---
+
+## 3. 実装パターン
+
+### 3.1 API 通信系コマンド
+
+`config`, `memory`, `threads`, `provider` など、バックエンドの Express サーバー (`localhost:33001`) を `fetch` するだけのコマンド。`src/api.ts` の `apiFetch` ラッパーを経由して実装する。
+
+```typescript
+// src/commands/memory.ts
+import { apiFetch } from '../api.js';
+
+export async function handleMemorySearch(query: string) {
+  const results = await apiFetch('POST', '/memories/search', { query, limit: 5 });
+  if (!results.length) { console.log('No memories found.'); return; }
+  results.forEach((mem: any, i: number) => {
+    console.log(`\n[${i + 1}] ${mem.content}`);
+  });
+}
+```
+
+### 3.2 ローカルファイル操作系コマンド
+
+`soul`, `user` など、API を叩かずに `~/.config/tomu/` 配下のファイルを直接読み書きするコマンド。
+
+```typescript
+import path from 'path';
+import os from 'os';
+
+const configDir = path.join(os.homedir(), '.config', 'tomu');
+const soulPath = path.join(configDir, 'SOUL.md');
+```
+
+### 3.3 外部プロセス呼び出し系コマンド
+
+`skill install` など、OS コマンドをバックグラウンドで実行するコマンド。
+
+```typescript
+import { execSync } from 'child_process';
+
+execSync(`git clone --depth 1 ${repoUrl} ${destDir}`, { stdio: 'inherit' });
+```
+
+---
+
+## 4. API エンドポイント一覧
+
+実装対象のエンドポイントは `docs/app-spec/07_CLI_AND_API.md` の Section 4 を参照してください。CLI コマンドと API の対応は Section 3 (CLI to API Mapping) に記載されています。
+
+---
+
+## 5. テスト方法
+
+```bash
+# ローカルサーバーが起動している状態で実行
+pnpm --filter @tomu/cli exec tsx src/index.ts <command>
+
+# 例
+pnpm --filter @tomu/cli exec tsx src/index.ts status
+pnpm --filter @tomu/cli exec tsx src/index.ts memory list
+```

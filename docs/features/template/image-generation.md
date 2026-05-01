@@ -1,6 +1,6 @@
 # Image Generation
 
-WorkTomo can generate images using AI and stores all generated images in a built-in gallery. Image generation requires a connected [media provider](../settings/media-providers.md) (Google Gemini).
+tomu can generate images using AI and stores all generated images in a built-in gallery. Image generation requires a connected [media provider](../settings/media-providers.md) (Google Gemini).
 
 ## Prerequisites
 
