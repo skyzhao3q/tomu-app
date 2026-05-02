@@ -1,7 +1,7 @@
 # tomu - データモデル設計書
 
-Status: Draft v2
-Date: 2026-03-22
+Status: Draft v3
+Date: 2026-05-01
 
 ---
 
@@ -72,7 +72,7 @@ interface VectorMemory {
 }
 ```
 
-**保存**: SQLite (`memories` + `memory_embeddings` テーブル)
+**保存**: SQLite。現行実装では `memories` (本文テーブル) と、sqlite-vec の vec0 仮想テーブル `memory_embeddings` (FLOAT[1536]) を使う。`memory_vectors` テーブルは存在しない。
 
 ### 2.4 Skill (動的プロンプト拡張)
 
@@ -128,14 +128,14 @@ interface SubAgent {
 type SubAgentType =
   | 'general-purpose'
   | 'coder'
-  | 'Explore'
-  | 'Plan'
+  | 'explore'
+  | 'plan'
   | 'tomu-guide'
   | 'tomu-operator'
   | 'statusline-setup';
 ```
 
-**保存**: インメモリ (`active_tasks` Map) — 揮発性
+**保存**: 互換 API 用の `Task` はメモリ上にも保持されるが、実行実体は `agent_missions`, `agent_runs`, `agent_handoffs` に永続化される。`agent_runs.messages_json` は再起動後の resume 用の会話状態を保持する。
 
 ### 2.6 Provider (AI プロバイダー)
 
@@ -196,6 +196,34 @@ interface Person {
 
 **保存**: `~/.config/tomu/people/<name>.md`
 
+### 2.9 Agent Profile (設定可能な専門エージェント)
+
+```typescript
+interface AgentProfile {
+  id: string;               // a-z, 0-9, hyphen
+  name: string;
+  category: 'design' | 'product' | 'engineering' | 'research' | 'operations' | 'custom';
+  executionMode:
+    | 'general-purpose'
+    | 'plan'
+    | 'coder'
+    | 'tomu-operator'
+    | 'explore'
+    | 'tomu-guide'
+    | 'statusline-setup';
+  enabled: boolean;
+  builtIn: boolean;
+  color: string;
+  summary: string;
+  focus: string[];
+  delegatesTo: string[];
+  prompt: string;
+  model?: string;
+}
+```
+
+**保存**: SQLite (`agent_profiles`)。組み込みプロファイルは初回起動時に `assets/prompts/subagents/*.md` から seed される。
+
 ---
 
 ## 3. メモリ階層 (Memory Hierarchy)
@@ -213,7 +241,7 @@ tomu の記憶は 4 層で構成され、プロンプト合成時に統合され
 │  → 今日と昨日のファイルを自動読み込み               │
 ├─────────────────────────────────────────────────┤
 │  Layer 3: Vector RAG (大規模検索)               │
-│  sqlite-vec (memories + memory_embeddings)       │
+│  memory_embeddings (vec0 仮想テーブル, FLOAT[1536])│
 │  → 質問に関連する過去の会話を類似度検索              │
 ├─────────────────────────────────────────────────┤
 │  Layer 4: Current Thread (短期)                 │
@@ -240,15 +268,18 @@ tomu の記憶は 4 層で構成され、プロンプト合成時に統合され
 | テーブル名 | 種別 | 主要カラム | 用途 |
 |:-----------|:-----|:-----------|:-----|
 | `memories` | 通常 | id, content, type, metadata, thread_id | RAG 記憶本文 |
-| `memory_embeddings` | 仮想 (vec0) | memory_id, embedding[1536] | ベクトル検索 |
-| `messages_fts` | 仮想 (fts5) | message_id, thread_id, content | 全文検索 |
-| `fts_metadata` | 通常 | key, value | FTS メタ情報 |
+| `memory_embeddings` | 仮想 (vec0) | memory_id TEXT PRIMARY KEY, embedding FLOAT[1536] | ベクトル検索用 embedding |
+| `messages_fts` | 仮想 (fts5) | content, thread_id UNINDEXED | 全文検索 |
 | `usage_logs` | 通常 | id, provider, model, input/output_tokens, timestamp | トークン使用量 |
 | `plugins` | 通常 | id, name, version, enabled | プラグイン管理 |
 | `plugin_permissions` | 通常 | plugin_id, permission | プラグイン権限 |
 | `plugin_settings` | 通常 | plugin_id, settings (JSON) | プラグイン設定 |
 | `mcp_servers` | 通常 | id, name, url, config | MCP サーバー定義 |
 | `mcp_oauth_tokens` | 通常 | server_id, token | MCP OAuth トークン |
+| `agent_missions` | 通常 | id, thread_id, root_message_id, title, status | ミッション単位の管理 |
+| `agent_runs` | 通常 | id, mission_id, agent_id, status, messages_json | エージェント実行履歴・resume |
+| `agent_handoffs` | 通常 | id, mission_id, from_run_id, to_agent_id, to_run_id, status, to_agent_name, packet, result_summary | 委譲履歴 |
+| `agent_profiles` | 通常 | id, execution_mode, enabled, built_in, prompt, model | Settings の Agents UI |
 
 ---
 

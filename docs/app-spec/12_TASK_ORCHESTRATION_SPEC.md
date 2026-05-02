@@ -1,14 +1,14 @@
 # tomu - Task Orchestration Spec (Enterprise Multi-Agent System)
 
-Status: Draft v1
-Date: 2026-04-05
-Based on: ALma Agent Orchestration Engine
+Status: Draft v2
+Date: 2026-05-01
+Source of truth reviewed: `apps/desktop/src/main/tasks.ts`, `apps/desktop/src/main/agents.ts`, `apps/desktop/src/main/subagents.ts`, `packages/core/src/db/schema.ts`
 
 ---
 
 ## 1. 機能概要 (Functional Overview)
 
-現在のTomuのインメモリの一時的なサブエージェント機能を廃止し、永続化・専門家化・連携化された「エンタープライズ級マルチエージェントシステム」にアップグレードする。
+Tomu のサブエージェント機能は、互換 API 用の一時タスク表示と、SQLite に永続化されるミッション/実行/ハンドオフ履歴を併用する。
 
 1. **Persistent Missions (永続化ミッション)**: エージェントの実行状態をSQLiteに保存し、アプリの再起動やクラッシュ後でも途中から再開（Resume）可能にする。
 2. **Managed Agent Crew (専門家クルー)**: 汎用的なエージェントだけでなく、PM、デザイナー、エンジニアなどの「役割」と「権限」を持った専門家を呼び出せるようにする。
@@ -18,7 +18,7 @@ Based on: ALma Agent Orchestration Engine
 
 ## 2. データモデル (Data Model)
 
-Tomuの `packages/core/src/db/schema.ts` (Drizzle ORM) に追加すべきテーブル定義。ALmaの `agent_missions`, `agent_runs`, `agent_handoffs` に対応する。
+Tomu の `packages/core/src/db/schema.ts` (Drizzle ORM) と `apps/desktop/src/main/db.ts` に定義済みのテーブル。
 
 ### 2.1 Agent Missions (ミッション全体管理)
 1つのスレッド内で開始された一連のタスクの「親」となるエンティティ。
@@ -49,6 +49,7 @@ export const agentRuns = sqliteTable("agent_runs", {
   status: text("status", { enum: ["queued", "running", "completed", "failed"] }).notNull().default("queued"),
   input_summary: text("input_summary").notNull(), // 与えられたタスク概要
   output_summary: text("output_summary"), // 完了時の成果報告
+  messages_json: text("messages_json"), // resume-on-restart 用 ModelMessage[]
   created_at: text("created_at").notNull(),
   updated_at: text("updated_at").notNull(),
 });
@@ -81,11 +82,11 @@ export const agentHandoffs = sqliteTable("agent_handoffs", {
 
 | agent_id | ベースモード (`subagent_type`) | ミッション・特徴 | 連携先 (Handoff) |
 |:---------|:-------------------------------|:-----------------|:-----------------|
-| `product-manager` | `Plan` | 要件定義、スコープ制御、ロードマップ作成。仕様の責任者。 | Designer, Developer, Researcher |
-| `designer` | `general-purpose` | ユーザー体験(UX)、レイアウト方針、文言、インタラクション設計。 | Researcher, Developer |
+| `product-manager` | `general-purpose` | 要件定義、スコープ制御、ロードマップ作成。仕様の責任者。 | Designer, Developer, Researcher, Operator |
+| `designer` | `plan` | ユーザー体験(UX)、レイアウト方針、文言、インタラクション設計。 | 現行 seed ではなし |
 | `developer` | `coder` | 実装、バグ修正、リファクタリング、テスト検証。技術的負債の管理。 | Operator, Researcher |
-| `researcher` | `general-purpose` | 事実確認、リポジトリ調査、技術選定の証拠集め。 | PM, Designer, Developer |
-| `operator` | `tomu-operator` | 環境構築、設定変更、プロバイダー管理、リリース作業。 | Developer, PM |
+| `researcher` | `explore` | 事実確認、リポジトリ調査、技術選定の証拠集め。 | 現行 seed ではなし |
+| `operator` | `tomu-operator` | 環境構築、設定変更、プロバイダー管理、リリース作業。 | 現行 seed ではなし |
 
 ---
 
@@ -125,9 +126,9 @@ interface HandoffPacket {
 ### 5.1 ミッション・ライフサイクル
 1. **Start**: メインエージェントが `Task` ツールを実行。
 2. **Init**: DBに `agent_missions` レコードを1つ作成し、最初の `agent_runs` を生成。
-3. **Loop**: サブエージェントのVercel AI SDKループを開始（既存の `stopWhen: stepCountIs(10)` を撤廃または大幅増強し、自律的な完了まで回す）。
+3. **Loop**: サブエージェントの Vercel AI SDK ループを開始する。現行実装は `stepCountIs(config.agent_max_iterations)` を使い、既定値は `25`。
 4. **Delegate**: サブエージェントが別のエージェントの力が必要と判断した場合、自身のツールからさらに `Task` を呼び出し、`agent_handoffs` レコードを作成。
-5. **Resume**: アプリ再起動時はDBから `status === "running"` の `agent_runs` を探し出し、履歴（messages）を復元して再実行する（`resume` パラメータの実装）。
+5. **Resume**: 起動時に `resumeStaleRuns()` が `running` の `agent_runs` を探し、`messages_json` から履歴を復元して再実行する。
 6. **Completion**: 全てのRunが完了したら `agent_missions` を completed にする。
 
 ### 5.2 エージェント間のコンテキスト共有
@@ -138,7 +139,7 @@ interface HandoffPacket {
 
 ## 6. UI/UX 要件 (Frontend Visualization)
 
-TomuのUI（React）には、バックグラウンドの進行状況をユーザーに可視化するコンポーネントが必要。
+Tomu の UI（React）には、バックグラウンドの進行状況をユーザーに可視化するコンポーネントがある。現行実装では `SubAgentTaskCard`, `AgentStatusWindow`, `LogStreamViewer` が主要表示面となる。
 
 1. **Mission Timeline**:
    - スレッド内に「現在進行中のミッション」カードを表示。
@@ -155,7 +156,7 @@ TomuのUI（React）には、バックグラウンドの進行状況をユーザ
 各専門家クルーの振る舞いを決定づけるシステムプロンプトの定義です。これらは、タスク生成時（`spawnTask`）にベースとなる `subagent_type` のプロンプトに加えて、強力な「役割（Role）」と「委譲ルール（Delegation Rules）」としてコンテキストに注入されます。
 
 ### 7.1 Product Manager (`product-manager`)
-- **ベースモード**: `Plan`
+- **ベースモード**: `general-purpose`
 - **ミッション**: 目標を要件、ロールアウトの分割、責任あるハンドオフへと落とし込む。
 - **フォーカス**: 要件定義、スコープ制御、ロードマップ作成、受け入れ基準の策定。
 - **連携先**: Researcher, Designer, Developer, Operator
@@ -174,7 +175,7 @@ RULES:
 ```
 
 ### 7.2 Designer (`designer`)
-- **ベースモード**: `general-purpose`
+- **ベースモード**: `plan`
 - **ミッション**: コードが書かれる前に、フロー、インタラクションの詳細、および視覚的な方向性を形成する。
 - **フォーカス**: ユーザージャーニー、レイアウト方針、マイクロコピー、インタラクションの批評。
 - **連携先**: Researcher, Developer
@@ -211,7 +212,7 @@ RULES:
 ```
 
 ### 7.4 Researcher (`researcher`)
-- **ベースモード**: `general-purpose`
+- **ベースモード**: `explore`
 - **ミッション**: 事実を発見し、選択肢を比較し、利用可能な証拠（エビデンス）をチームに返す。
 - **フォーカス**: バックグラウンド調査、競合スキャン、コードベースの偵察、意思決定のサポート。
 - **連携先**: Product Manager, Designer, Developer
@@ -223,13 +224,13 @@ Your focus is on background research, competitive scans, codebase reconnaissance
 
 RULES:
 1. You do not make final product decisions or write production code. You provide the deep context and data required for others to do so.
-2. Use WebSearch/WebFetch tools to gather external information, and Glob/Grep/Read tools for extensive codebase reconnaissance.
+2. Use available browser or shell tooling when explicitly enabled; otherwise, use Glob/Grep/Read tools for repository reconnaissance.
 3. Format your findings clearly, weighing pros and cons, and citing your sources.
 4. When finished, hand your well-structured research artifact back to the requesting agent (PM, Designer, or Developer).
 ```
 
 ### 7.5 Operator (`operator`)
-- **ベースモード**: `tomu-operator` (または `alma-operator`)
+- **ベースモード**: `tomu-operator`
 - **ミッション**: ランタイム構成、プロバイダーの接続、および運用上のフォローアップを所有する。
 - **フォーカス**: 設定変更、プロバイダーのセットアップ、環境の調整、リリースの衛生管理。
 - **連携先**: Developer, Product Manager
@@ -246,9 +247,9 @@ RULES:
 4. Report back the precise operational state changes once completed so the Developer or PM can proceed.
 ```
 ### 7.1 Product Manager (`product-manager`)
-- **Base Mode**: `Plan`
+- **Base Mode**: `general-purpose`
 - **Execution Engine**: Vercel AI SDK (Background Task)
-- **Primary Tool Access**: `Task` (Delegate), `Read`, `Glob`, `WebSearch`
+- **Primary Tool Access**: `Task`, `TaskOutput`, `Read`, `Glob`, `Grep`
 
 **FULL System Prompt:**
 ```text
@@ -274,8 +275,8 @@ When using the `Task` tool, you MUST provide a strict JSON `handoff` packet.
 ```
 
 ### 7.2 Designer (`designer`)
-- **Base Mode**: `general-purpose`
-- **Primary Tool Access**: `Read`, `Write`, `Glob`, `WebSearch`, `Task`
+- **Base Mode**: `plan`
+- **Primary Tool Access**: `Read`, `Glob`, `Grep`, `Task`, `TaskOutput`
 
 **FULL System Prompt:**
 ```text
@@ -304,7 +305,7 @@ You are the Lead UX/UI Designer. Your mission is to shape user flows, component 
 
 ### 7.3 Developer (`developer`)
 - **Base Mode**: `coder`
-- **Primary Tool Access**: `Bash`, `Read`, `Write`, `Edit`, `Glob`, `Grep`, `Task`
+- **Primary Tool Access**: `Bash`, `Read`, `Write`, `Edit`, `Glob`, `Grep`, `Task`, `TaskOutput`
 
 **FULL System Prompt:**
 ```text
@@ -329,8 +330,8 @@ You are the Lead Developer. Your mission is to write robust, maintainable, and e
 ```
 
 ### 7.4 Researcher (`researcher`)
-- **Base Mode**: `general-purpose`
-- **Primary Tool Access**: `WebSearch`, `WebFetch`, `Glob`, `Grep`, `Read`
+- **Base Mode**: `explore`
+- **Primary Tool Access**: `Read`, `Glob`, `Grep`
 
 **FULL System Prompt:**
 ```text
@@ -338,7 +339,7 @@ You are the Technical Researcher. Your mission is to find facts, map out unfamil
 
 # CORE RESPONSIBILITIES
 1. **Codebase Reconnaissance**: Navigate large, unfamiliar codebases. Use `Glob` and `Grep` to trace API endpoints, find component usages, and build architectural maps.
-2. **External Research**: Use `WebSearch` and `WebFetch` to read official documentation, GitHub issues, and API references.
+2. **External Research**: Use available browser or shell tooling when explicitly enabled; otherwise, focus on repository-local evidence.
 3. **Decision Support**: When the team needs to choose between Tech A and Tech B, provide a structured comparison (Pros/Cons, tradeoffs, integration complexity).
 
 # OUTPUT FORMAT

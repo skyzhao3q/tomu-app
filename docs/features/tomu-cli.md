@@ -34,8 +34,8 @@ tomu memory add "The API rate limit is 100 req/min"
 tomu memory search "rate limit"
 
 # Config (supports dot-notation)
-tomu config get chat.defaultModel
-tomu config set chat.defaultModel anthropic:claude-sonnet-4-6
+tomu config get default_provider_id
+tomu config set default_model_id claude-sonnet-4-6
 ```
 
 ## Global options
@@ -74,12 +74,12 @@ tomu version
 
 ### `tomu config`
 
-Manage application settings. Supports dot-notation for nested keys (`chat.defaultModel`, `tts.auto`).
+Manage application settings. Supports dot-notation for nested keys when settings contain nested objects; current core keys include `default_provider_id`, `default_model_id`, `embedding_provider_id`, `embedding_model_id`, `agent_max_iterations`, `agents_enabled`, and `agents_allow_delegation`.
 
 | Subcommand | Description |
 |-----------|-------------|
 | `config list [--json]` | List all settings |
-| `config get <key>` | Get a setting value (e.g. `chat.defaultModel`) |
+| `config get <key>` | Get a setting value (e.g. `default_model_id`) |
 | `config set <key> <value>` | Set a setting value (type-coerced: `true`/`false`/numbers) |
 
 ---
@@ -270,87 +270,77 @@ tomu import <threads|memories> --file <path>   # type-specific
 
 ---
 
-## Future extensions — Alma-compatible commands
+## Extended commands
 
-The following commands exist in the Alma CLI reference implementation and are candidates for future addition to tomu. They are documented here to guide prioritization.
+These commands are implemented in `apps/cli/src/commands`.
 
-### Sprint C — API additions required
+### `tomu cron`
 
-| Command | Description | API needed |
-|---------|-------------|------------|
-| `cron list/add/update/remove/run/enable/disable/history` | Cron job management | `POST/GET/PUT/DELETE /api/cron/jobs` |
-| `workspace list/set/create/delete` | Workspace (context) management | `GET/POST/PUT /api/workspaces` |
+Manage scheduled jobs.
 
-### Messaging
+| Subcommand | Description |
+|-----------|-------------|
+| `cron list [--json]` | List jobs |
+| `cron add <name> <type> <schedule>` | Add a job |
+| `cron remove <id>` | Remove a job |
+| `cron run <id>` | Run immediately |
+| `cron enable <id>` / `cron disable <id>` | Toggle a job |
+| `cron history <id> [--json]` | Show run history |
 
-| Command | Description |
-|---------|-------------|
-| `send photo <path> [--chat <id>] [--thread <id>] [caption]` | Send a photo to a chat or thread |
-| `send file <path> [--chat <id>]` | Send a file as a document |
-| `send audio <path> [--chat <id>]` | Send an audio file |
-| `send video <path> [--chat <id>]` | Send a video file |
-| `send voice <path> [--chat <id>]` | Send a voice message |
-| `dm <chatId> <message>` | Send a direct message |
-| `msg <chatId> <message>` | Send a message (alias for `dm`) |
+### `tomu workspace`
 
-### Media generation
+| Subcommand | Description |
+|-----------|-------------|
+| `workspace list [--json]` | List workspaces |
+| `workspace set <id> <path>` | Set or update a workspace path |
 
-| Command | Description |
-|---------|-------------|
-| `image <prompt> [--size <s>] [--style <s>]` | Generate an image with AI (DALL-E, Imagen, etc.) |
-| `tts <text> [--voice <v>] [--speed <s>]` | Convert text to speech |
-| `voices` | List available TTS voices |
-| `sing <text> [--voice <v>] [--style <s>]` | Generate a singing voice |
-| `video <prompt> [--duration <s>]` | Generate a short video clip |
-
-### Platform integrations
+### Messaging and media
 
 | Command | Description |
 |---------|-------------|
-| `discord send <channel> <message>` | Send a message to a Discord channel |
-| `discord list` | List recent Discord messages |
-| `discord delete <id>` | Delete a Discord message |
-| `feishu send <channel> <message>` | Send a Feishu (Lark) message |
-| `feishu list` | List recent Feishu messages |
+| `dm <userId> <message>` | Send a direct message via `/api/dm` |
+| `msg delete <chatId> <messageId>` | Delete a message |
+| `send photo <filePath> [caption] [--thread <threadId>]` | Attach a photo to a thread |
+| `voices [--json]` | List voices |
+| `image models [--json]` | List image models |
+| `image generate <prompt> [--model <model>] [--reference <url>] [--json]` | Generate an image |
+| `image edit <prompt> [--model <model>] [--input <url>] [--json]` | Edit an image |
+| `sing generate <description> [--json]` | Generate a song |
+| `sing config <apiKey>` | Configure song generation |
 
 ### Browser automation
 
 | Command | Description |
 |---------|-------------|
-| `browser open <url>` | Open a URL in a headless browser |
-| `browser screenshot [--output <file>]` | Take a screenshot of the current page |
-| `browser click <selector>` | Click an element |
-| `browser type <selector> <text>` | Type text into an input field |
-| `browser scroll <up|down> [<px>]` | Scroll the page |
-| `browser close` | Close the browser session |
+| `browser status [--json]` | Check browser relay status |
+| `browser tabs [--json]` | List tabs |
+| `browser open [url]` | Open a tab |
+| `browser goto <tabId> <url>` | Navigate a tab |
+| `browser click <tabId> <selector>` | Click an element |
+| `browser type <tabId> <selector> <text> [--enter]` | Type into an element |
+| `browser screenshot [tabId]` | Capture a screenshot |
+| `browser read <tabId>` / `browser read-dom <tabId>` | Read page text or DOM |
+| `browser eval <tabId> <code> [--json]` | Evaluate JavaScript |
+| `browser scroll <tabId> <direction> [amount]` | Scroll |
+| `browser back <tabId>` / `browser forward <tabId>` | Navigate history |
 
-### Identity & self-expression
-
-| Command | Description |
-|---------|-------------|
-| `selfie take [--style <s>] [--prompt <p>]` | Generate a self-image (uses face reference) |
-| `selfie list` | List generated self-images |
-| `selfie show <id>` | Display a self-image |
-| `selfie delete <id>` | Delete a self-image |
-| `emotion set <emotion>` | Set the agent's current emotional state |
-| `emotion show` | Show the current emotional state |
-
-### Lifecycle management
+### State and maintenance
 
 | Command | Description |
 |---------|-------------|
-| `sleep [<seconds>]` | Transition agent to sleep state |
-| `wake` | Wake the agent from sleep |
-| `rest` | Transition agent to rest/low-power mode |
-| `heartbeat` | Send a liveness heartbeat signal |
+| `emotion status [--json]` | Show current emotion state |
+| `emotion set-base <mood> <energy> <valence> <description>` | Set base emotion |
+| `emotion set-context <chatId> <mood> <valence> <trigger>` | Set per-chat context |
+| `emotion get [chatId]` | Get emotion state |
+| `heartbeat status/config [--json]` | Show heartbeat state/config |
+| `heartbeat enable/disable` | Toggle heartbeat |
+| `heartbeat interval <minutes>` | Set interval |
+| `heartbeat patrol <action> [--json]` | Trigger patrol action |
+| `update check [--json]` | Check for updates |
+| `update download` | Download update |
+| `update install` | Install update |
 
-### Travel & maps
-
-| Command | Description |
-|---------|-------------|
-| `travel plan <destination>` | Generate a travel itinerary |
-| `travel route <from> <to>` | Get directions between two locations |
-| `travel weather <location>` | Fetch weather information |
+Alma-reference commands such as `group`, `sleep`, `wake`, `rest`, `tts`, `video`, `discord`, `feishu`, `travel`, and `selfie` are not registered by the current `tomu` CLI.
 
 ---
 

@@ -81,10 +81,11 @@ allowed-tools:
 | Method | Endpoint | 説明 |
 |:-------|:---------|:-----|
 | GET | `/api/skills` | スキル一覧取得 |
-| POST | `/api/skills` | スキルインストール |
+| GET | `/api/skills/search` | スキル検索 |
+| GET | `/api/skills/:id` | スキル詳細取得 |
+| POST | `/api/skills/install` | スキルインストール (url + id 指定) |
 | DELETE | `/api/skills/:id` | スキルアンインストール |
-| POST | `/api/skills/refresh` | メタデータ再読み込み |
-| GET | `/api/skills-path` | スキルディレクトリパス取得 |
+| PUT | `/api/skills/:id/toggle` | スキル有効/無効切り替え |
 
 #### インストールフロー
 
